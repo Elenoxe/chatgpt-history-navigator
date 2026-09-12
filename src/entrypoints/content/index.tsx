@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
-import Timeline from '@/features/timeline/Timeline';
+import App from './App';
 import { i18n, initI18n } from '@/i18n';
 import { getPageLanguage } from '@/platform/chatgpt';
 import './style.css';
@@ -27,7 +27,7 @@ export default defineContentScript({
         root.render(
           <I18nextProvider i18n={i18n}>
             <QueryClientProvider client={queryClient}>
-              <Timeline />
+              <App />
             </QueryClientProvider>
           </I18nextProvider>,
         );
