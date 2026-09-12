@@ -1,0 +1,23 @@
+@import 'tailwindcss' prefix(tw);
+
+@theme {
+  /* Pixel tokens keep the panel independent of the host page's rem size. */
+  --spacing: 4px;
+  --text-sm: 14px;
+  --text-sm--line-height: 1.5;
+  --radius-xl: 12px;
+  --color-surface: light-dark(#fff, #212121);
+  --color-foreground: light-dark(#222, #eee);
+  --color-muted: light-dark(#666, #aaa);
+  --color-outline: light-dark(#dedede, #444);
+  --shadow-panel: 0 4px 20px #0002;
+}
+
+@layer base {
+  :host {
+    color-scheme: light dark;
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+}

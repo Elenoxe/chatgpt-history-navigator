@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "ChatGPT 时间线"
+  },
+  "extensionDescription": {
+    "message": "在 ChatGPT 页面显示时间线，方便跳转对话消息。"
+  }
+}
