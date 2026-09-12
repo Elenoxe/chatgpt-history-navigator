@@ -1,4 +1,4 @@
-import { observePageLanguage } from "@/platform/chatgpt";
+import { observePageLanguage } from "@/platform/chatgpt/page";
 import { createInstance } from "i18next";
 import { useEffect } from "react";
 import { initReactI18next } from "react-i18next";

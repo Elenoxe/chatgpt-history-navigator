@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
 import App from './App';
 import { i18n, initI18n } from '@/i18n';
-import { getPageLanguage } from '@/platform/chatgpt';
+import { getPageLanguage } from '@/platform/chatgpt/page';
 import './style.css';
 
 export default defineContentScript({
