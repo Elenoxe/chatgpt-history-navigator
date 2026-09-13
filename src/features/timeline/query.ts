@@ -2,7 +2,7 @@ import {
   ChatgptHttpError,
   fetchConversation,
   fetchConversationPage,
-  getAccessToken,
+  fetchAccessToken,
 } from "@/platform/chatgpt/api";
 import {
   ConversationDataError,
@@ -24,22 +24,22 @@ export function getTimelineQueryOptions(
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    staleTime: (query) => (query.state.data?.complete ? 60_000 : 0),
+    staleTime: (query) => (query.state.data?.isHistoryComplete ? 60_000 : 0),
     gcTime: 30 * 60_000,
     queryFn: async ({ signal }): Promise<ConversationHistory> => {
       if (!userId || !conversationId)
         throw new Error("No active conversation identity");
-      const accessToken = await getAccessToken(signal);
+      const accessToken = await fetchAccessToken(signal);
       const options = { accessToken, signal };
-      const publish = (history: ConversationHistory) => {
+      const updateHistoryCache = (history: ConversationHistory) => {
         signal.throwIfAborted();
         client.setQueryData(queryKey, history);
       };
       try {
         const history = await fetchConversation(conversationId, options);
         signal.throwIfAborted();
-        if (history.complete) return history;
-        publish(history);
+        if (history.isHistoryComplete) return history;
+        updateHistoryCache(history);
       } catch (error) {
         signal.throwIfAborted();
         // Only an explicitly unsupported endpoint permits switching API paths.
@@ -60,10 +60,10 @@ export function getTimelineQueryOptions(
         signal.throwIfAborted();
         pages.push(page);
         const history = mergeConversationPages(pages);
-        publish(history);
+        updateHistoryCache(history);
         before = page.previousCursor ?? undefined;
         if (before === undefined) {
-          if (!history.complete)
+          if (!history.isHistoryComplete)
             throw new ConversationDataError(
               "History is missing the latest messages",
             );

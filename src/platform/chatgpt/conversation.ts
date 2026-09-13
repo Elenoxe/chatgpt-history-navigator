@@ -45,7 +45,7 @@ export type ConversationHistory = {
   currentNodeId: string;
   messages: ConversationMessage[];
   nodes: BranchNode[];
-  complete: boolean;
+  isHistoryComplete: boolean;
   missingNodeId: string | null;
 };
 
@@ -56,7 +56,7 @@ export class ConversationDataError extends Error {
   }
 }
 
-export function parseData<T>(schema: z.ZodType<T>, value: unknown): T {
+export function parseApiResponse<T>(schema: z.ZodType<T>, value: unknown): T {
   // MAIN-world capture and MV3 extension contexts disallow dynamic code generation.
   const result = schema.safeParse(value, { jitless: true });
   if (!result.success) {
@@ -67,7 +67,7 @@ export function parseData<T>(schema: z.ZodType<T>, value: unknown): T {
   return result.data;
 }
 
-function retainMessage(message: ApiMessage): ConversationMessage[] {
+function normalizeDisplayMessage(message: ApiMessage): ConversationMessage[] {
   const role = message.author.role;
   if (role !== 'user' && role !== 'assistant') return [];
   return [{
@@ -84,7 +84,7 @@ function retainMessage(message: ApiMessage): ConversationMessage[] {
   }];
 }
 
-const headerSchema = z.object({
+const conversationInfoSchema = z.object({
   conversation_id: idSchema,
   title: z.string(),
   current_node: idSchema,
@@ -94,12 +94,12 @@ const nodeSchema = z.object({
   parent: idSchema.nullable(),
   message: messageSchema.nullish(),
 });
-const historySchema = headerSchema.extend({
+const historySchema = conversationInfoSchema.extend({
   mapping: z.record(z.string(), nodeSchema),
 });
 
 export function parseConversation(value: unknown): ConversationHistory {
-  const data = parseData(historySchema, value);
+  const data = parseApiResponse(historySchema, value);
   const path: z.infer<typeof nodeSchema>[] = [];
   const seen = new Set<string>();
   let id: string | null = data.current_node;
@@ -130,14 +130,14 @@ export function parseConversation(value: unknown): ConversationHistory {
     conversationId: data.conversation_id,
     title: data.title,
     currentNodeId: data.current_node,
-    messages: path.flatMap((node) => node.message ? retainMessage(node.message) : []),
+    messages: path.flatMap((node) => node.message ? normalizeDisplayMessage(node.message) : []),
     nodes: path.map((node) => ({
       nodeId: node.id,
       parentNodeId: node.parent,
       messageId: node.message?.id ?? null,
       parentMessageId: node.message?.metadata.parent_id ?? null,
     })),
-    complete: missingNodeId === null,
+    isHistoryComplete: missingNodeId === null,
     missingNodeId,
   };
 }
@@ -154,10 +154,10 @@ const pageSchema = z.object({
 
 export type ConversationPage = {
   conversationId: string;
-  header: Pick<ConversationHistory, 'title' | 'currentNodeId'> | null;
+  conversationInfo: Pick<ConversationHistory, 'title' | 'currentNodeId'> | null;
   before: string | null;
   previousCursor: string | null;
-  hasNewer: boolean;
+  hasNewerMessages: boolean;
   messages: ConversationMessage[];
   nodes: BranchNode[];
 };
@@ -167,9 +167,9 @@ export function parseConversationPage(
   conversationId: string,
   before: string | null = null,
 ): ConversationPage {
-  const data = parseData(pageSchema, value);
-  const header = before === null ? parseData(headerSchema, value) : null;
-  if (header && header.conversation_id !== conversationId) {
+  const data = parseApiResponse(pageSchema, value);
+  const conversationInfo = before === null ? parseApiResponse(conversationInfoSchema, value) : null;
+  if (conversationInfo && conversationInfo.conversation_id !== conversationId) {
     throw new ConversationDataError('Conversation ID does not match request');
   }
   const previousCursor = data.page_info.has_previous_page ? data.page_info.start_cursor : null;
@@ -181,11 +181,11 @@ export function parseConversationPage(
   }
   return {
     conversationId,
-    header: header ? { title: header.title, currentNodeId: header.current_node } : null,
+    conversationInfo: conversationInfo ? { title: conversationInfo.title, currentNodeId: conversationInfo.current_node } : null,
     before,
     previousCursor,
-    hasNewer: data.page_info.has_next_page,
-    messages: data.messages.flatMap(retainMessage),
+    hasNewerMessages: data.page_info.has_next_page,
+    messages: data.messages.flatMap(normalizeDisplayMessage),
     nodes: data.messages.map((message) => ({
       nodeId: null,
       parentNodeId: null,
@@ -198,7 +198,7 @@ export function parseConversationPage(
 // Pages are supplied in fetch order: latest page first, then progressively older pages.
 export function mergeConversationPages(pages: readonly ConversationPage[]): ConversationHistory {
   const first = pages[0];
-  if (!first?.header || first.before !== null) {
+  if (!first?.conversationInfo || first.before !== null) {
     throw new ConversationDataError('History must begin with the initial conversation page');
   }
   const cursors = new Set<string>();
@@ -225,10 +225,10 @@ export function mergeConversationPages(pages: readonly ConversationPage[]): Conv
     page.nodes.flatMap((node) => node.messageId ? [node.messageId] : [])))];
   return {
     conversationId: first.conversationId,
-    ...first.header,
+    ...first.conversationInfo,
     messages: orderedIds.flatMap((id) => messages.has(id) ? [messages.get(id)!] : []),
     nodes: orderedIds.map((id) => nodes.get(id)!),
-    complete: !first.hasNewer && pages.at(-1)?.previousCursor === null,
+    isHistoryComplete: !first.hasNewerMessages && pages.at(-1)?.previousCursor === null,
     missingNodeId: null,
   };
 }

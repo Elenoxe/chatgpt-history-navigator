@@ -3,13 +3,13 @@ import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 
 const pageChangeEvent = 'chatgpt-timeline:pagechange';
 const identitySchema = z.object({ user: z.object({ id: z.string().min(1) }) });
-let identityText: string | null | undefined;
+let cachedBootstrapText: string | null | undefined;
 let userId: string | null = null;
 
-export function getPageSnapshot(): string {
+export function getConversationContextSnapshot(): string {
   const text = document.getElementById('client-bootstrap')?.textContent ?? null;
-  if (text !== identityText) {
-    identityText = text;
+  if (text !== cachedBootstrapText) {
+    cachedBootstrapText = text;
     userId = null;
     if (text) {
       try {
@@ -23,20 +23,20 @@ export function getPageSnapshot(): string {
   return JSON.stringify([userId, id.success ? id.data : null]);
 }
 
-export function subscribePage(onChange: () => void): () => void {
+export function subscribeConversationContext(onChange: () => void): () => void {
   window.addEventListener(pageChangeEvent, onChange);
   return () => window.removeEventListener(pageChangeEvent, onChange);
 }
 
-export function observePage(
+export function startConversationContextObserver(
   ctx: ContentScriptContext,
-  beforeChange: (identityChanged: boolean) => void,
+  beforeNotify: (userChanged: boolean) => void,
 ): () => void {
-  let snapshot = getPageSnapshot();
+  let snapshot = getConversationContextSnapshot();
   const update = () => {
-    const next = getPageSnapshot();
+    const next = getConversationContextSnapshot();
     if (snapshot === next) return;
-    beforeChange(JSON.parse(snapshot)[0] !== JSON.parse(next)[0]);
+    beforeNotify(JSON.parse(snapshot)[0] !== JSON.parse(next)[0]);
     snapshot = next;
     window.dispatchEvent(new Event(pageChangeEvent));
   };
@@ -63,7 +63,7 @@ const languageSchema = z.string().trim().refine((value) => {
   }
 }, 'Invalid language tag');
 
-const bootstrapSchema = z.object({ locale: languageSchema });
+const bootstrapLocaleSchema = z.object({ locale: languageSchema });
 
 export function getPageLanguage(): string {
   const bootstrap = document.getElementById('client-bootstrap')?.textContent;
@@ -74,7 +74,7 @@ export function getPageLanguage(): string {
     } catch {
       // Invalid bootstrap JSON uses the next language source below.
     }
-    const result = bootstrapSchema.safeParse(data);
+    const result = bootstrapLocaleSchema.safeParse(data);
     if (result.success) return result.data.locale;
   }
 

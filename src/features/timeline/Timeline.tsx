@@ -20,8 +20,8 @@ export default function Timeline() {
             <div className="tw:mb-3 tw:flex tw:items-center tw:justify-between tw:gap-2">
               <p role="status" className="tw:text-muted">
                 {timeline.isLoading ? t('timelineLoading')
-                  : timeline.totalCount === null ? t('timelineLoaded', { count: timeline.loadedCount })
-                    : t('timelineTotal', { count: timeline.totalCount })}
+                  : timeline.totalQuestionCount === null ? t('timelineLoaded', { count: timeline.loadedQuestionCount })
+                    : t('timelineTotal', { count: timeline.totalQuestionCount })}
                 {timeline.isSyncing && <span className="tw:block">{t('timelineSyncing')}</span>}
               </p>
               <button type="button" disabled={timeline.isLoading || timeline.isSyncing}

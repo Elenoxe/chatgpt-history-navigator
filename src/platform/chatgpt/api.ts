@@ -1,13 +1,10 @@
 import { z } from 'zod';
-import { ConversationDataError, parseConversation, parseConversationPage, parseData } from './conversation';
+import { ConversationDataError, parseConversation, parseConversationPage, parseApiResponse } from './conversation';
 
 export class ChatgptHttpError extends Error {
-  readonly authenticationError: boolean;
-
   constructor(readonly status: number) {
     super(`ChatGPT request failed (HTTP ${status})`);
     this.name = 'ChatgptHttpError';
-    this.authenticationError = status === 401 || status === 403;
   }
 }
 
@@ -34,21 +31,21 @@ async function requestJson(path: string, signal?: AbortSignal, accessToken?: str
 
 // No global token cache. The caller owns these credentials for its loading operation;
 // never persist them in Query data or forward them through the page bridge.
-export async function getAccessToken(signal?: AbortSignal): Promise<string> {
+export async function fetchAccessToken(signal?: AbortSignal): Promise<string> {
   const data = await requestJson('/api/auth/session', signal);
-  return parseData(z.object({ accessToken: z.string().min(1) }), data).accessToken;
+  return parseApiResponse(z.object({ accessToken: z.string().min(1) }), data).accessToken;
 }
 
 type RequestOptions = { accessToken: string; signal?: AbortSignal };
 
-function conversationPath(conversationId: string, plural: boolean): string {
+function conversationPath(conversationId: string, kind: 'mapping' | 'paginated'): string {
   // IDs come from page URLs/events; reject malformed IDs before making a request.
   const id = z.uuid().parse(conversationId);
-  return `/backend-api/${plural ? 'conversations' : 'conversation'}/${id}`;
+  return `/backend-api/${kind === 'paginated' ? 'conversations' : 'conversation'}/${id}`;
 }
 
 export async function fetchConversation(conversationId: string, options: RequestOptions) {
-  const path = conversationPath(conversationId, false);
+  const path = conversationPath(conversationId, 'mapping');
   if (!options.accessToken.trim()) throw new Error('ChatGPT access token is required');
   const data = await requestJson(path, options.signal, options.accessToken);
   const history = parseConversation(data);
@@ -63,7 +60,7 @@ export async function fetchConversationPage(
   options: RequestOptions & { before?: string },
 ) {
   const before = options.before === undefined ? null : z.string().min(1).parse(options.before);
-  const path = conversationPath(conversationId, true);
+  const path = conversationPath(conversationId, 'paginated');
   if (!options.accessToken.trim()) throw new Error('ChatGPT access token is required');
   const query = new URLSearchParams({ num_turns: '100', include_has_versions: 'true' });
   if (before !== null) query.set('before', before);

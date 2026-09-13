@@ -1,10 +1,10 @@
-import { getPageSnapshot, subscribePage } from "@/platform/chatgpt/page";
+import { getConversationContextSnapshot, subscribeConversationContext } from "@/platform/chatgpt/page";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useSyncExternalStore } from "react";
 import { getTimelineQueryOptions } from "./query";
 
 export function useTimeline() {
-  const snapshot = useSyncExternalStore(subscribePage, getPageSnapshot);
+  const snapshot = useSyncExternalStore(subscribeConversationContext, getConversationContextSnapshot);
   const [userId, conversationId] = JSON.parse(snapshot) as [
     string | null,
     string | null,
@@ -34,8 +34,8 @@ export function useTimeline() {
     conversationId,
     identityAvailable: userId !== null,
     questions,
-    loadedCount: questions.length,
-    totalCount: query.data?.complete ? questions.length : null,
+    loadedQuestionCount: questions.length,
+    totalQuestionCount: query.data?.isHistoryComplete ? questions.length : null,
     isLoading: query.isLoading,
     isSyncing: query.isFetching && query.data !== undefined,
     error: query.error,

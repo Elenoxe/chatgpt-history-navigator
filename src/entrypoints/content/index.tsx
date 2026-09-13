@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
 import App from './App';
 import { i18n, initI18n } from '@/i18n';
-import { getPageLanguage, observePage } from '@/platform/chatgpt/page';
+import { getPageLanguage, startConversationContextObserver } from '@/platform/chatgpt/page';
 import './style.css';
 
 export default defineContentScript({
@@ -15,12 +15,12 @@ export default defineContentScript({
     if (ctx.isInvalid) return;
 
     const queryClient = new QueryClient();
-    const stopObservingPage = observePage(ctx, (identityChanged) => {
+    const stopObservingConversationContext = startConversationContextObserver(ctx, (userChanged) => {
       // Query's manual page updates also update its cancellation restore point.
       void queryClient.cancelQueries({ queryKey: ['timeline'] });
-      if (identityChanged) queryClient.removeQueries({ queryKey: ['timeline'] });
+      if (userChanged) queryClient.removeQueries({ queryKey: ['timeline'] });
     });
-    ctx.onInvalidated(stopObservingPage);
+    ctx.onInvalidated(stopObservingConversationContext);
 
     const ui = await createShadowRootUi(ctx, {
       name: 'chatgpt-timeline',
@@ -40,7 +40,7 @@ export default defineContentScript({
         return root;
       },
       onRemove(root) {
-        stopObservingPage();
+        stopObservingConversationContext();
         root?.unmount();
         queryClient.clear();
       },
