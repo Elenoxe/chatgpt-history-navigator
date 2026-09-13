@@ -1,4 +1,12 @@
 {
   "timelineTitle": "Timeline",
-  "timelinePlaceholder": "Timeline is mounted. Conversation messages are not connected yet."
+  "timelineNoConversation": "Open a conversation to view its timeline.",
+  "timelineIdentityUnavailable": "Unable to identify the signed-in user. Reload the page.",
+  "timelineLoading": "Loading history…",
+  "timelineLoaded": "{{count}} questions loaded",
+  "timelineTotal": "{{count}} questions",
+  "timelineSyncing": "Syncing…",
+  "timelineRefresh": "Refresh",
+  "timelineError": "Could not load all history. Refresh to try again.",
+  "timelineNonText": "Image, attachment, or other non-text question"
 }

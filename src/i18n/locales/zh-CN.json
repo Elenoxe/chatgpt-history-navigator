@@ -1,4 +1,12 @@
 {
   "timelineTitle": "时间线",
-  "timelinePlaceholder": "时间线组件已挂载，待接入对话消息。"
+  "timelineNoConversation": "打开会话以查看时间线。",
+  "timelineIdentityUnavailable": "无法识别登录用户，请重新加载页面。",
+  "timelineLoading": "正在加载历史…",
+  "timelineLoaded": "已加载 {{count}} 条提问",
+  "timelineTotal": "共 {{count}} 条提问",
+  "timelineSyncing": "正在同步…",
+  "timelineRefresh": "刷新",
+  "timelineError": "未能加载完整历史，请点击刷新重试。",
+  "timelineNonText": "图片、附件或其他非文本提问"
 }
