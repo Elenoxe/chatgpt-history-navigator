@@ -18,36 +18,39 @@ const messageSchema = z.object({
 
 type ApiMessage = z.infer<typeof messageSchema>;
 
-export type ConversationMessage = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: ApiMessage['content'];
-  metadata: ApiMessage['metadata'];
-  createdAt: number | null;
-  updatedAt: number | null;
-  status: string | null;
-  endTurn: boolean | null;
-  channel: string | null;
-  hidden: boolean;
-};
+const conversationMessageSchema = z.object({
+  id: idSchema,
+  role: z.enum(['user', 'assistant']),
+  content: messageSchema.shape.content,
+  metadata: messageSchema.shape.metadata,
+  createdAt: z.number().nullable(),
+  updatedAt: z.number().nullable(),
+  status: z.string().nullable(),
+  endTurn: z.boolean().nullable(),
+  channel: z.string().nullable(),
+  hidden: z.boolean(),
+});
+export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 
-export type BranchNode = {
+const branchNodeSchema = z.object({
   // Paginated responses do not expose mapping node IDs or parent node IDs.
-  nodeId: string | null;
-  parentNodeId: string | null;
-  messageId: string | null;
-  parentMessageId: string | null;
-};
+  nodeId: idSchema.nullable(),
+  parentNodeId: idSchema.nullable(),
+  messageId: idSchema.nullable(),
+  parentMessageId: idSchema.nullable(),
+});
+export type BranchNode = z.infer<typeof branchNodeSchema>;
 
-export type ConversationHistory = {
-  conversationId: string;
-  title: string;
-  currentNodeId: string;
-  messages: ConversationMessage[];
-  nodes: BranchNode[];
-  isHistoryComplete: boolean;
-  missingNodeId: string | null;
-};
+export const conversationHistorySchema = z.object({
+  conversationId: idSchema,
+  title: z.string(),
+  currentNodeId: idSchema,
+  messages: z.array(conversationMessageSchema),
+  nodes: z.array(branchNodeSchema),
+  isHistoryComplete: z.boolean(),
+  missingNodeId: idSchema.nullable(),
+});
+export type ConversationHistory = z.infer<typeof conversationHistorySchema>;
 
 export class ConversationDataError extends Error {
   constructor(message: string) {
@@ -152,15 +155,16 @@ const pageSchema = z.object({
   }),
 });
 
-export type ConversationPage = {
-  conversationId: string;
-  conversationInfo: Pick<ConversationHistory, 'title' | 'currentNodeId'> | null;
-  before: string | null;
-  previousCursor: string | null;
-  hasNewerMessages: boolean;
-  messages: ConversationMessage[];
-  nodes: BranchNode[];
-};
+export const conversationPageSchema = z.object({
+  conversationId: idSchema,
+  conversationInfo: conversationHistorySchema.pick({ title: true, currentNodeId: true }).nullable(),
+  before: idSchema.nullable(),
+  previousCursor: idSchema.nullable(),
+  hasNewerMessages: z.boolean(),
+  messages: z.array(conversationMessageSchema),
+  nodes: z.array(branchNodeSchema),
+});
+export type ConversationPage = z.infer<typeof conversationPageSchema>;
 
 export function parseConversationPage(
   value: unknown,
