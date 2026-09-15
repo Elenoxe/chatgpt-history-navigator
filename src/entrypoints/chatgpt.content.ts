@@ -1,6 +1,7 @@
 import { createHistoryPublisher, type HistoryCaptureEvent } from '@/platform/chatgpt/bridge';
 import { parseConversation, parseConversationPage } from '@/platform/chatgpt/conversation';
 import { getConversationContextSnapshot } from '@/platform/chatgpt/page';
+import { installMessageStreamCapture } from '@/platform/chatgpt/stream';
 
 export default defineContentScript({
   matches: ['https://chatgpt.com/*'],
@@ -8,14 +9,30 @@ export default defineContentScript({
   runAt: 'document_start',
   main() {
     const publisher = createHistoryPublisher();
+    const messageStreamCapture = installMessageStreamCapture(publisher);
     const originalFetch = window.fetch;
     window.fetch = function (input, init) {
+      // Request bodies must be cloned before native fetch consumes them.
+      let captureInput = input;
+      if (input instanceof Request && (init?.method ?? input.method).toUpperCase() === 'POST' && !init?.body) {
+        try { captureInput = input.clone(); }
+        catch { console.warn('[chatgpt-timeline] Unable to clone submitted request'); }
+      }
       const responsePromise = originalFetch.call(this, input, init);
       if (publisher.isStopped()) return responsePromise;
       // Capture failures must never change the page's request or response.
       try {
         const url = new URL(input instanceof Request ? input.url : String(input), location.href);
         const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+        if (url.origin === location.origin && method.toUpperCase() === 'POST' &&
+            /^\/backend-api\/(?:f\/)?conversation$/.test(url.pathname)) {
+          const [userId] = JSON.parse(getConversationContextSnapshot());
+          if (userId) void messageStreamCapture.captureRequest(captureInput, init, responsePromise, userId);
+          return responsePromise;
+        }
+        if (url.origin === location.origin && method.toUpperCase() === 'GET' && url.pathname.startsWith('/backend-api/')) {
+          void messageStreamCapture.captureResume(url, responsePromise);
+        }
         const match = url.pathname.match(/^\/backend-api\/(conversation|conversations)\/([\da-f-]{36})(\/messages)?$/i);
         if (url.origin !== location.origin || method.toUpperCase() !== 'GET' || !match ||
             (match[1] === 'conversation' && match[3])) return responsePromise;

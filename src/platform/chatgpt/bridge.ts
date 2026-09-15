@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   conversationHistorySchema,
   conversationPageSchema,
+  conversationMessageSchema,
+  branchNodeSchema,
 } from "./conversation";
 
 const channel = "chatgpt-timeline:history";
@@ -10,6 +12,8 @@ const historyCaptureEventSchema = z.object({
   conversationId: z.uuid(),
   requestStartedAt: z.number().finite().nonnegative(),
   result: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal('messages'), messages: z.array(conversationMessageSchema),
+      nodes: z.array(branchNodeSchema), phase: z.enum(['streaming', 'complete', 'interrupted']) }),
     z.object({
       kind: z.literal("history"),
       history: conversationHistorySchema,

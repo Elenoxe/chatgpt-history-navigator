@@ -18,7 +18,7 @@ const messageSchema = z.object({
 
 type ApiMessage = z.infer<typeof messageSchema>;
 
-const conversationMessageSchema = z.object({
+export const conversationMessageSchema = z.object({
   id: idSchema,
   role: z.enum(['user', 'assistant']),
   content: messageSchema.shape.content,
@@ -32,7 +32,7 @@ const conversationMessageSchema = z.object({
 });
 export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 
-const branchNodeSchema = z.object({
+export const branchNodeSchema = z.object({
   // Paginated responses do not expose mapping node IDs or parent node IDs.
   nodeId: idSchema.nullable(),
   parentNodeId: idSchema.nullable(),
@@ -49,6 +49,7 @@ export const conversationHistorySchema = z.object({
   nodes: z.array(branchNodeSchema),
   isHistoryComplete: z.boolean(),
   missingNodeId: idSchema.nullable(),
+  isGenerating: z.boolean().optional(),
 });
 export type ConversationHistory = z.infer<typeof conversationHistorySchema>;
 
@@ -85,6 +86,40 @@ function normalizeDisplayMessage(message: ApiMessage): ConversationMessage[] {
     channel: message.channel ?? null,
     hidden: message.metadata.is_visually_hidden_from_conversation === true,
   }];
+}
+
+export function parseStreamMessage(value: unknown) {
+  const message = parseApiResponse(messageSchema, value);
+  return {
+    messages: normalizeDisplayMessage(message),
+    node: { nodeId: null, parentNodeId: null, messageId: message.id,
+      parentMessageId: message.metadata.parent_id ?? null } satisfies BranchNode,
+  };
+}
+
+export function mergeStreamMessages(
+  current: ConversationHistory | undefined,
+  conversationId: string,
+  messages: ConversationMessage[],
+  nodes: BranchNode[],
+  isGenerating: boolean,
+): ConversationHistory {
+  const mergedMessages = new Map(current?.messages.map(message => [message.id, message]));
+  const mergedNodes = new Map(current?.nodes.map(node => [node.messageId ?? node.nodeId, node]));
+  let complete = current?.isHistoryComplete ?? false;
+  for (const node of nodes) {
+    if (!mergedNodes.has(node.messageId) && node.parentMessageId &&
+        !mergedNodes.has(node.parentMessageId) &&
+        ![...mergedNodes.values()].some(parent => parent.nodeId === node.parentMessageId)) complete = false;
+    const existing = mergedNodes.get(node.messageId);
+    mergedNodes.set(node.messageId, existing ? { ...node, nodeId: existing.nodeId, parentNodeId: existing.parentNodeId } : node);
+  }
+  for (const message of messages) mergedMessages.set(message.id, message);
+  return {
+    conversationId, title: current?.title ?? '', currentNodeId: current?.currentNodeId ?? nodes.at(-1)?.messageId ?? '',
+    messages: [...mergedMessages.values()], nodes: [...mergedNodes.values()],
+    isHistoryComplete: complete, missingNodeId: current?.missingNodeId ?? null, isGenerating,
+  };
 }
 
 const conversationInfoSchema = z.object({

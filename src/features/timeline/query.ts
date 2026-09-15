@@ -7,6 +7,7 @@ import {
 import {
   ConversationDataError,
   mergeConversationPages,
+  mergeStreamMessages,
   type ConversationHistory,
   type ConversationPage,
 } from "@/platform/chatgpt/conversation";
@@ -15,12 +16,17 @@ import { subscribeHistoryCaptureEvents } from '@/platform/chatgpt/bridge';
 import { getConversationContextSnapshot, subscribeConversationContext } from '@/platform/chatgpt/page';
 
 // Query objects own their ordering metadata; removal/GC also releases this state.
-const historyLoadStates = new WeakMap<object, { acceptedSnapshotStartedAt: number; activeLoadStartedAt: number }>();
+const historyLoadStates = new WeakMap<object, {
+  acceptedSnapshotStartedAt: number;
+  activeLoadStartedAt: number;
+  streamStartedAt: number;
+  streamMessageIds: Set<string>;
+}>();
 function getHistoryLoadState(client: QueryClient, queryKey: readonly unknown[]) {
   const query = client.getQueryCache().build(client, { queryKey });
   let load = historyLoadStates.get(query);
   if (!load) {
-    load = { acceptedSnapshotStartedAt: 0, activeLoadStartedAt: 0 };
+    load = { acceptedSnapshotStartedAt: 0, activeLoadStartedAt: 0, streamStartedAt: 0, streamMessageIds: new Set() };
     historyLoadStates.set(query, load);
   }
   return load;
@@ -61,9 +67,33 @@ export function startCapturedHistorySync(client: QueryClient) {
   const unsubscribeCapture = subscribeHistoryCaptureEvents((capture) => {
     updateContext();
     const [userId, conversationId] = JSON.parse(contextSnapshot) as [string | null, string | null];
+    if (capture.result.kind === 'messages') {
+      // Streams remain associated with their request even after SPA navigation.
+      if (capture.userId !== userId) return;
+      const queryKey = ['timeline', userId, capture.conversationId] as const;
+      const load = getHistoryLoadState(client, queryKey);
+      if (capture.requestStartedAt < load.streamStartedAt ||
+          (capture.requestStartedAt !== load.streamStartedAt && capture.requestStartedAt < load.acceptedSnapshotStartedAt)) return;
+      if (capture.requestStartedAt !== load.streamStartedAt) load.streamMessageIds.clear();
+      load.streamStartedAt = capture.requestStartedAt;
+      load.acceptedSnapshotStartedAt = Math.max(load.acceptedSnapshotStartedAt, capture.requestStartedAt);
+      // Subsequent reply chunks must not cancel a refresh started during generation.
+      if (load.activeLoadStartedAt < capture.requestStartedAt) void client.cancelQueries({ queryKey, exact: true });
+      const { messages, nodes, phase } = capture.result;
+      for (const node of nodes) if (node.messageId) load.streamMessageIds.add(node.messageId);
+      for (const message of messages) load.streamMessageIds.add(message.id);
+      client.setQueryData<ConversationHistory>(queryKey, current => mergeStreamMessages(
+        current, capture.conversationId, messages, nodes, phase === 'streaming'));
+      const history = client.getQueryData<ConversationHistory>(queryKey);
+      if (phase === 'interrupted' || (phase === 'complete' && !history?.isHistoryComplete)) {
+        void client.invalidateQueries({ queryKey, exact: true });
+      }
+      return;
+    }
     if (capture.userId !== userId || capture.conversationId !== conversationId ||
         capture.requestStartedAt < contextChangedAt) return;
     const queryKey = ['timeline', userId, conversationId] as const;
+    if (client.getQueryData<ConversationHistory>(queryKey)?.isGenerating) return;
     const load = getHistoryLoadState(client, queryKey);
     let snapshotStartedAt = capture.requestStartedAt;
     if (capture.result.kind === 'page' && capture.result.page.before !== null) {
@@ -133,7 +163,7 @@ export function getTimelineQueryOptions(
   const queryKey = ["timeline", userId, conversationId] as const;
   return queryOptions<ConversationHistory>({
     queryKey,
-    enabled: userId !== null && conversationId !== null,
+    enabled: query => userId !== null && conversationId !== null && !query.state.data?.isGenerating,
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -144,6 +174,7 @@ export function getTimelineQueryOptions(
         throw new Error("No active conversation identity");
       const load = getHistoryLoadState(client, queryKey);
       const requestStartedAt = performance.timeOrigin + performance.now();
+      const startedDuringGeneration = client.getQueryData<ConversationHistory>(queryKey)?.isGenerating === true;
       load.activeLoadStartedAt = requestStartedAt;
       const accessToken = await fetchAccessToken(signal);
       const options = { accessToken, signal };
@@ -153,15 +184,22 @@ export function getTimelineQueryOptions(
           throw new ConversationDataError('History load superseded by a newer snapshot');
         }
         load.acceptedSnapshotStartedAt = requestStartedAt;
-        client.setQueryData<ConversationHistory>(queryKey, (current) =>
-          current?.isHistoryComplete && !history.isHistoryComplete ? current : history);
+        return client.setQueryData<ConversationHistory>(queryKey, (current) => {
+          if (current?.isHistoryComplete && !history.isHistoryComplete) return current;
+          if (current && (startedDuringGeneration || current.isGenerating)) {
+            return mergeStreamMessages(history, conversationId,
+              current.messages.filter(message => load.streamMessageIds.has(message.id)),
+              current.nodes.filter(node => node.messageId !== null && load.streamMessageIds.has(node.messageId)),
+              current.isGenerating === true);
+          }
+          return history;
+        })!;
       };
       try {
         const history = await fetchConversation(conversationId, options);
         signal.throwIfAborted();
         if (history.isHistoryComplete) {
-          updateHistoryCache(history);
-          return history;
+          return updateHistoryCache(history);
         }
         updateHistoryCache(history);
       } catch (error) {
@@ -184,14 +222,14 @@ export function getTimelineQueryOptions(
         signal.throwIfAborted();
         pages.push(page);
         const history = mergeConversationPages(pages);
-        updateHistoryCache(history);
+        const cachedHistory = updateHistoryCache(history);
         before = page.previousCursor ?? undefined;
         if (before === undefined) {
           if (!history.isHistoryComplete)
             throw new ConversationDataError(
               "History is missing the latest messages",
             );
-          return history;
+          return cachedHistory;
         }
       } while (before !== undefined);
       throw new ConversationDataError("History did not complete");
