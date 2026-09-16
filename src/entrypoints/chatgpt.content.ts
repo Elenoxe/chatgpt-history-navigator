@@ -1,4 +1,5 @@
-import { createHistoryPublisher, type HistoryCaptureEvent } from '@/platform/chatgpt/bridge';
+import { createHistoryPublisher, installQuestionRevealHandler, type HistoryCaptureEvent } from '@/platform/chatgpt/bridge';
+import { revealQuestion, loadQuestionHistory } from '@/platform/chatgpt/navigation';
 import { parseConversation, parseConversationPage } from '@/platform/chatgpt/conversation';
 import { getConversationContextSnapshot } from '@/platform/chatgpt/page';
 import { installMessageStreamCapture } from '@/platform/chatgpt/stream';
@@ -8,6 +9,7 @@ export default defineContentScript({
   world: 'MAIN',
   runAt: 'document_start',
   main() {
+    installQuestionRevealHandler(revealQuestion, loadQuestionHistory);
     const publisher = createHistoryPublisher();
     const messageStreamCapture = installMessageStreamCapture(publisher);
     const originalFetch = window.fetch;

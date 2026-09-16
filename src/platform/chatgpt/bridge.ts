@@ -7,6 +7,104 @@ import {
 } from "./conversation";
 
 const channel = "chatgpt-timeline:history";
+const revealEvent = 'chatgpt-timeline:reveal-question';
+const loadQuestionEvent = 'chatgpt-timeline:load-question';
+const loadQuestionDoneEvent = 'chatgpt-timeline:load-question-done';
+const cancelLoadQuestionEvent = 'chatgpt-timeline:cancel-load-question';
+const revealRequestSchema = z.object({
+  messageId: z.uuid(),
+  pathname: z.string(),
+});
+
+export function installQuestionRevealHandler(
+  reveal: (messageId: string) => boolean,
+  loadHistory: (messageId: string, signal: AbortSignal) => Promise<boolean>,
+) {
+  document.addEventListener(revealEvent, event => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.parentElement !== document.documentElement) return;
+    const parsed = revealRequestSchema.safeParse({
+      messageId: target.dataset.messageId, pathname: target.dataset.pathname,
+    });
+    if (!parsed.success || parsed.data.pathname !== location.pathname) return;
+    let revealed = false;
+    try { revealed = reveal(parsed.data.messageId); }
+    catch (error) { console.warn('[chatgpt-timeline] Native question reveal failed:', error); }
+    target.dataset.revealed = String(revealed);
+  });
+  document.addEventListener(loadQuestionEvent, event => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.parentElement !== document.documentElement) return;
+    const parsed = revealRequestSchema.safeParse({
+      messageId: target.dataset.messageId, pathname: target.dataset.pathname,
+    });
+    if (!parsed.success || parsed.data.pathname !== location.pathname || target.dataset.loading) return;
+    target.dataset.loading = 'true';
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    target.addEventListener(cancelLoadQuestionEvent, cancel, { once: true });
+    void loadHistory(parsed.data.messageId, controller.signal).then(loaded => {
+      target.dataset.result = loaded ? 'loaded' : 'unavailable';
+    }).catch(error => {
+      if (controller.signal.aborted) return;
+      console.error('[chatgpt-timeline] Native history load failed:', error);
+      target.dataset.result = 'error';
+    }).finally(() => {
+      target.removeEventListener(cancelLoadQuestionEvent, cancel);
+      if (!controller.signal.aborted) target.dispatchEvent(new Event(loadQuestionDoneEvent));
+    });
+  });
+}
+
+export function requestQuestionHistory(messageId: string, signal: AbortSignal): Promise<boolean> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const request = document.createElement('span');
+    request.hidden = true;
+    request.dataset.messageId = messageId;
+    request.dataset.pathname = location.pathname;
+    const cleanup = () => {
+      signal.removeEventListener('abort', abort);
+      request.removeEventListener(loadQuestionDoneEvent, done);
+      request.remove();
+    };
+    const abort = () => {
+      request.dispatchEvent(new Event(cancelLoadQuestionEvent));
+      cleanup();
+      reject(signal.reason);
+    };
+    const done = () => {
+      const result = request.dataset.result;
+      cleanup();
+      if (result === 'error') reject(new Error('Native history load failed'));
+      else resolve(result === 'loaded');
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    request.addEventListener(loadQuestionDoneEvent, done);
+    document.documentElement.append(request);
+    request.dispatchEvent(new Event(loadQuestionEvent, { bubbles: true }));
+    // Synchronous acknowledgement distinguishes a missing adapter from a slow
+    // request, without imposing a timeout on loading.
+    if (request.dataset.loading !== 'true') { cleanup(); resolve(false); }
+  });
+}
+
+export function tryRevealQuestion(messageId: string): boolean {
+  // DOM event dispatch crosses the two worlds synchronously. An old queued
+  // postMessage can therefore never execute after a newer navigation/cancel.
+  // Only validated message IDs cross this bridge; no functions or credentials.
+  const request = document.createElement('span');
+  request.hidden = true;
+  request.dataset.messageId = messageId;
+  request.dataset.pathname = location.pathname;
+  document.documentElement.append(request);
+  try {
+    request.dispatchEvent(new Event(revealEvent, { bubbles: true }));
+    return request.dataset.revealed === 'true';
+  } finally {
+    request.remove();
+  }
+}
 const historyCaptureEventSchema = z.object({
   userId: z.string().min(1),
   conversationId: z.uuid(),

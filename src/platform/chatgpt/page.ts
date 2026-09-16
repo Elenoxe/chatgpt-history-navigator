@@ -1,7 +1,198 @@
 import { z } from 'zod';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
+import { tryRevealQuestion, requestQuestionHistory } from './bridge';
 
 const pageChangeEvent = 'chatgpt-timeline:pagechange';
+
+// DOM is used only for navigation and reading position; content stays in the API cache.
+export async function scrollToQuestion(messageId: string, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  const id = CSS.escape(messageId);
+  const path = location.pathname;
+  await new Promise<void>((resolve, reject) => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let nativeTarget: Element | null = null;
+    let root: HTMLElement | null = null;
+    let observedMain: HTMLElement | null = null;
+    let historyLoad: 'idle' | 'pending' | 'complete' | 'unavailable' = 'idle';
+    const historyController = new AbortController();
+    const mutations = new MutationObserver(() => schedule(0));
+    const resize = new ResizeObserver(() => schedule(0));
+    const cleanup = () => {
+      stopped = true;
+      historyController.abort();
+      clearTimeout(timer);
+      mutations.disconnect();
+      resize.disconnect();
+      signal.removeEventListener('abort', abort);
+      document.removeEventListener('wheel', onManualScroll, true);
+      document.removeEventListener('touchstart', onManualScroll, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+    const abort = () => { cleanup(); reject(signal.reason); };
+    const cancel = () => { cleanup(); resolve(); };
+    const onManualScroll = (event: Event) => {
+      if (root && event.composedPath().includes(root)) cancel();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      // Clicking/dragging the conversation, including its scrollbar, takes over.
+      if (root && event.composedPath().includes(root)) cancel();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Escape', ' '].includes(event.key)) cancel();
+    };
+    function schedule(delay: number) {
+      if (stopped) return;
+      clearTimeout(timer);
+      timer = setTimeout(advance, delay);
+    }
+    function advance() {
+      if (stopped) return;
+      if (location.pathname !== path) { cancel(); return; }
+      const main = document.querySelector<HTMLElement>('main');
+      root = main;
+      while (root && !/^(auto|scroll)$/.test(getComputedStyle(root).overflowY)) root = root.parentElement;
+      if (main !== observedMain) {
+        mutations.disconnect();
+        resize.disconnect();
+        observedMain = main;
+        if (main) {
+          mutations.observe(main, { childList: true, subtree: true, attributes: true,
+            attributeFilter: ['data-message-id', 'data-turn-id-container'] });
+          resize.observe(main);
+        }
+      }
+      if (main && root) {
+        const placeholder = main.querySelector<HTMLElement>(`[data-turn-id-container="${id}"]`);
+        if (!placeholder && historyLoad === 'idle') {
+          historyLoad = 'pending';
+          void requestQuestionHistory(messageId, historyController.signal).then(loaded => {
+            if (stopped) return;
+            historyLoad = loaded ? 'complete' : 'unavailable';
+            schedule(0);
+          }).catch(error => {
+            if (stopped) return;
+            cleanup();
+            reject(error);
+          });
+        }
+        // Let the native targeted request finish without competing pagination
+        // or jumping to the top while the reader is waiting.
+        if (historyLoad === 'pending') { schedule(1000); return; }
+        const nativeAnchor = placeholder ?? main.querySelector<HTMLElement>('[data-turn-id-container]');
+        if (nativeAnchor && nativeAnchor !== nativeTarget) {
+          nativeTarget = nativeAnchor;
+          // Also replace the native target when it was already mounted: an old
+          // host navigation must not keep aligning an earlier question.
+          tryRevealQuestion(messageId);
+        }
+        const message = main.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+        if (message) {
+          const turn = message.closest<HTMLElement>('[data-turn-id]') ?? message;
+          turn.scrollIntoView({ block: 'start', behavior: 'instant' });
+          const rect = message.getBoundingClientRect();
+          const viewport = root.getBoundingClientRect();
+          // Instant scrolling is synchronous. Do not wait for rAF, which can be
+          // suspended in hidden tabs even after the target has been positioned.
+          if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
+            cleanup();
+            resolve();
+            return;
+          }
+        } else if (placeholder) {
+          const rect = placeholder.getBoundingClientRect();
+          const viewport = root.getBoundingClientRect();
+          if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) {
+            placeholder.scrollIntoView({ block: 'center', behavior: 'instant' });
+          }
+        } else {
+          // Keep exposing the real pagination sentinel after each prepend.
+          // Observing DOM changes alone misses delayed loads and scroll anchoring.
+          const sentinel = main.querySelector<HTMLElement>('[data-testid="conversation-pagination-sentinel"]');
+          if (sentinel) {
+            // Keep it in the observer's viewport without repeatedly writing the
+            // same scroll position while the host is fetching a page.
+            const rect = sentinel.getBoundingClientRect();
+            const viewport = root.getBoundingClientRect();
+            if (rect.top < viewport.top || rect.bottom > viewport.bottom) {
+              sentinel.scrollIntoView({ block: 'start', behavior: 'instant' });
+            }
+          }
+          else root.scrollTo({ top: Math.max(0, root.scrollTop - root.clientHeight), behavior: 'instant' });
+        }
+      }
+      // DOM/size changes advance immediately. This check also discovers replaced
+      // containers and delayed mounts; it is not a deadline or a retry limit.
+      schedule(1000);
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    document.addEventListener('wheel', onManualScroll, { capture: true, passive: true });
+    document.addEventListener('touchstart', onManualScroll, { capture: true, passive: true });
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    advance();
+  });
+}
+
+export function observeVisibleQuestions(
+  questionByMessageId: ReadonlyMap<string, string>,
+  onChange: (ids: Set<string>) => void,
+): () => void {
+  const targets = new Map<Element, string>();
+  const visible = new Set<Element>();
+  let previous = new Set<string>();
+  let frame = 0;
+  const publish = () => {
+    const ids = new Set([...visible].flatMap(element => {
+      const id = targets.get(element);
+      return id ? [id] : [];
+    }));
+    if (ids.size === previous.size && [...ids].every(id => previous.has(id))) return;
+    previous = ids;
+    onChange(ids);
+  };
+  const intersection = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) visible.add(entry.target);
+      else visible.delete(entry.target);
+    }
+    publish();
+  }, { rootMargin: '-16px 0px 0px 0px' });
+  const reconcile = () => {
+    frame = 0;
+    const next = new Map<Element, string>();
+    for (const message of document.querySelectorAll<HTMLElement>('main [data-message-id]')) {
+      const id = questionByMessageId.get(message.dataset.messageId!);
+      if (id) next.set(message.closest('[data-turn-id]') ?? message, id);
+    }
+    for (const element of targets.keys()) {
+      if (next.has(element)) continue;
+      intersection.unobserve(element);
+      targets.delete(element);
+      visible.delete(element);
+    }
+    for (const [element, id] of next) {
+      if (!targets.has(element)) intersection.observe(element);
+      targets.set(element, id);
+    }
+    publish();
+  };
+  const mutations = new MutationObserver(records => {
+    const relevant = records.some(record => record.type === 'attributes' ||
+      [...record.addedNodes, ...record.removedNodes].some(node => node instanceof Element &&
+        (node.matches('[data-message-id]') || node.querySelector('[data-message-id]'))));
+    if (relevant && !frame) frame = requestAnimationFrame(reconcile);
+  });
+  mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-message-id'] });
+  reconcile();
+  return () => {
+    cancelAnimationFrame(frame);
+    mutations.disconnect();
+    intersection.disconnect();
+  };
+}
 const identitySchema = z.object({ user: z.object({ id: z.string().min(1) }) });
 let cachedBootstrapText: string | null | undefined;
 let userId: string | null = null;

@@ -4,6 +4,7 @@ const idSchema = z.string().min(1);
 const messageSchema = z.object({
   id: idSchema,
   author: z.object({ role: z.string() }),
+  recipient: z.string().nullish(),
   content: z.looseObject({ content_type: z.string() }),
   metadata: z.looseObject({
     is_visually_hidden_from_conversation: z.boolean().optional(),
@@ -21,6 +22,7 @@ type ApiMessage = z.infer<typeof messageSchema>;
 export const conversationMessageSchema = z.object({
   id: idSchema,
   role: z.enum(['user', 'assistant']),
+  recipient: z.string().nullable(),
   content: messageSchema.shape.content,
   metadata: messageSchema.shape.metadata,
   createdAt: z.number().nullable(),
@@ -77,6 +79,7 @@ function normalizeDisplayMessage(message: ApiMessage): ConversationMessage[] {
   return [{
     id: message.id,
     role,
+    recipient: message.recipient ?? null,
     content: message.content,
     metadata: message.metadata,
     createdAt: message.create_time ?? null,

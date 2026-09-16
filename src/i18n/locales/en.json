@@ -1,12 +1,5 @@
 {
   "timelineTitle": "Timeline",
-  "timelineNoConversation": "Open a conversation to view its timeline.",
-  "timelineIdentityUnavailable": "Unable to identify the signed-in user. Reload the page.",
-  "timelineLoading": "Loading history…",
-  "timelineLoaded": "{{count}} questions loaded",
-  "timelineTotal": "{{count}} questions",
-  "timelineSyncing": "Syncing…",
-  "timelineRefresh": "Refresh",
-  "timelineError": "Could not load all history. Refresh to try again.",
+  "timelineNavigationFailed": "ChatGPT couldn't finish loading or locating this question. Click to try again.",
   "timelineNonText": "Image, attachment, or other non-text question"
 }
