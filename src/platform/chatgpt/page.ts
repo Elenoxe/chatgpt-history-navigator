@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
-import { tryRevealQuestion, requestQuestionHistory } from './bridge';
+import { tryRevealQuestion, requestQuestionHistory, observeHistoryPagination } from './bridge';
 
 const pageChangeEvent = 'chatgpt-timeline:pagechange';
 
@@ -22,6 +22,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
     const cleanup = () => {
       stopped = true;
       historyController.abort();
+      observeHistoryPagination(messageId, false);
       clearTimeout(timer);
       mutations.disconnect();
       resize.disconnect();
@@ -81,7 +82,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
         // Let the native targeted request finish without competing pagination
         // or jumping to the top while the reader is waiting.
         if (historyLoad === 'pending') { schedule(1000); return; }
-        const nativeAnchor = placeholder ?? main.querySelector<HTMLElement>('[data-turn-id-container]');
+        const nativeAnchor = placeholder;
         if (nativeAnchor && nativeAnchor !== nativeTarget) {
           nativeTarget = nativeAnchor;
           // Also replace the native target when it was already mounted: an old
@@ -117,8 +118,9 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
             const rect = sentinel.getBoundingClientRect();
             const viewport = root.getBoundingClientRect();
             if (rect.top < viewport.top || rect.bottom > viewport.bottom) {
-              sentinel.scrollIntoView({ block: 'start', behavior: 'instant' });
+              root.scrollTo({ top: 0, behavior: 'instant' });
             }
+            observeHistoryPagination(messageId, true);
           }
           else root.scrollTo({ top: Math.max(0, root.scrollTop - root.clientHeight), behavior: 'instant' });
         }

@@ -14,21 +14,26 @@ const cancelLoadQuestionEvent = 'chatgpt-timeline:cancel-load-question';
 const revealRequestSchema = z.object({
   messageId: z.uuid(),
   pathname: z.string(),
+  action: z.enum(['reveal', 'refresh-pagination', 'stop-pagination']).default('reveal'),
 });
 
-export function installQuestionRevealHandler(
+export function installNavigationHandlers(
   reveal: (messageId: string) => boolean,
   loadHistory: (messageId: string, signal: AbortSignal) => Promise<boolean>,
+  observePagination: (active: boolean) => void,
 ) {
   document.addEventListener(revealEvent, event => {
     const target = event.target;
     if (!(target instanceof HTMLElement) || target.parentElement !== document.documentElement) return;
     const parsed = revealRequestSchema.safeParse({
-      messageId: target.dataset.messageId, pathname: target.dataset.pathname,
+      messageId: target.dataset.messageId, pathname: target.dataset.pathname, action: target.dataset.action,
     });
     if (!parsed.success || parsed.data.pathname !== location.pathname) return;
     let revealed = false;
-    try { revealed = reveal(parsed.data.messageId); }
+    try {
+      if (parsed.data.action === 'reveal') revealed = reveal(parsed.data.messageId);
+      else observePagination(parsed.data.action === 'refresh-pagination');
+    }
     catch (error) { console.warn('[chatgpt-timeline] Native question reveal failed:', error); }
     target.dataset.revealed = String(revealed);
   });
@@ -90,6 +95,14 @@ export function requestQuestionHistory(messageId: string, signal: AbortSignal): 
 }
 
 export function tryRevealQuestion(messageId: string): boolean {
+  return dispatchNavigationAction(messageId, 'reveal');
+}
+
+export function observeHistoryPagination(messageId: string, active: boolean) {
+  dispatchNavigationAction(messageId, active ? 'refresh-pagination' : 'stop-pagination');
+}
+
+function dispatchNavigationAction(messageId: string, action: z.infer<typeof revealRequestSchema>['action']): boolean {
   // DOM event dispatch crosses the two worlds synchronously. An old queued
   // postMessage can therefore never execute after a newer navigation/cancel.
   // Only validated message IDs cross this bridge; no functions or credentials.
@@ -97,6 +110,7 @@ export function tryRevealQuestion(messageId: string): boolean {
   request.hidden = true;
   request.dataset.messageId = messageId;
   request.dataset.pathname = location.pathname;
+  request.dataset.action = action;
   document.documentElement.append(request);
   try {
     request.dispatchEvent(new Event(revealEvent, { bubbles: true }));

@@ -8,6 +8,50 @@ type Fiber = {
   updateQueue?: { memoCache?: { data?: unknown[][] } };
 };
 
+let paginationObservation: {
+  element: Element;
+  root: unknown;
+  effect: () => (() => void) | undefined;
+  stop: () => void;
+} | undefined;
+
+export function setHistoryPaginationObservation(active: boolean) {
+  if (!active) {
+    paginationObservation?.stop();
+    paginationObservation = undefined;
+    return;
+  }
+  const element = document.querySelector<HTMLElement>('[data-testid="conversation-pagination-sentinel"]');
+  if (!element) { setHistoryPaginationObservation(false); return; }
+  const key = Object.keys(element).find(key => key.startsWith('__reactFiber$'));
+  let fiber = key ? (element as unknown as Record<string, Fiber>)[key] : undefined;
+  for (; fiber; fiber = fiber.return) {
+    const props = fiber.memoizedProps;
+    if (!props?.conversation || !('scrollContainerRef' in props)) continue;
+    const effects = (fiber.updateQueue?.memoCache?.data?.flat() ?? []).filter(
+      (value): value is () => (() => void) | undefined => {
+        if (typeof value !== 'function') return false;
+        const source = Function.prototype.toString.call(value);
+        return source.includes('new IntersectionObserver') &&
+          source.includes('.isIntersecting') && source.includes('rootMargin:');
+      },
+    );
+    if (effects.length !== 1) continue;
+    const effect = effects[0]!;
+    const root = (props.scrollContainerRef as { current?: unknown } | undefined)?.current;
+    if (paginationObservation?.effect === effect && paginationObservation.element === element &&
+        paginationObservation.root === root) return;
+    setHistoryPaginationObservation(false);
+    // The host replaces this effect when its cursor changes. Register only after
+    // ISOLATED has restored the sentinel's position following scroll anchoring.
+    // The host callback owns loading state, deduplication and page application.
+    const stop = effect();
+    if (typeof stop === 'function') paginationObservation = { element, root, effect, stop };
+    return;
+  }
+  setHistoryPaginationObservation(false);
+}
+
 type NativeHistoryLoader = (conversationId: string, options: {
   includeMessageId: string;
   forceNetworkFetch: boolean;
