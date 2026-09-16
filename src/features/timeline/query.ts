@@ -21,6 +21,7 @@ const historyLoadStates = new WeakMap<object, {
   activeLoadStartedAt: number;
   streamStartedAt: number;
   streamMessageIds: Set<string>;
+  streamBranchParentId?: string;
 }>();
 function getHistoryLoadState(client: QueryClient, queryKey: readonly unknown[]) {
   const query = client.getQueryCache().build(client, { queryKey });
@@ -74,16 +75,19 @@ export function startCapturedHistorySync(client: QueryClient) {
       const load = getHistoryLoadState(client, queryKey);
       if (capture.requestStartedAt < load.streamStartedAt ||
           (capture.requestStartedAt !== load.streamStartedAt && capture.requestStartedAt < load.acceptedSnapshotStartedAt)) return;
-      if (capture.requestStartedAt !== load.streamStartedAt) load.streamMessageIds.clear();
+      if (capture.requestStartedAt !== load.streamStartedAt) {
+        load.streamMessageIds.clear();
+        load.streamBranchParentId = capture.result.branchParentId;
+      }
       load.streamStartedAt = capture.requestStartedAt;
       load.acceptedSnapshotStartedAt = Math.max(load.acceptedSnapshotStartedAt, capture.requestStartedAt);
       // Subsequent reply chunks must not cancel a refresh started during generation.
       if (load.activeLoadStartedAt < capture.requestStartedAt) void client.cancelQueries({ queryKey, exact: true });
-      const { messages, nodes, phase } = capture.result;
+      const { messages, nodes, phase, branchParentId } = capture.result;
       for (const node of nodes) if (node.messageId) load.streamMessageIds.add(node.messageId);
       for (const message of messages) load.streamMessageIds.add(message.id);
       client.setQueryData<ConversationHistory>(queryKey, current => mergeStreamMessages(
-        current, capture.conversationId, messages, nodes, phase === 'streaming'));
+        current, capture.conversationId, messages, nodes, phase === 'streaming', branchParentId));
       const history = client.getQueryData<ConversationHistory>(queryKey);
       if (phase === 'interrupted' || (phase === 'complete' && !history?.isHistoryComplete)) {
         void client.invalidateQueries({ queryKey, exact: true });
@@ -190,7 +194,7 @@ export function getTimelineQueryOptions(
             return mergeStreamMessages(history, conversationId,
               current.messages.filter(message => load.streamMessageIds.has(message.id)),
               current.nodes.filter(node => node.messageId !== null && load.streamMessageIds.has(node.messageId)),
-              current.isGenerating === true);
+              current.isGenerating === true, load.streamBranchParentId);
           }
           return history;
         })!;

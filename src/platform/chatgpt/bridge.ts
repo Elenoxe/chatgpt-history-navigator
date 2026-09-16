@@ -13,7 +13,8 @@ const historyCaptureEventSchema = z.object({
   requestStartedAt: z.number().finite().nonnegative(),
   result: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal('messages'), messages: z.array(conversationMessageSchema),
-      nodes: z.array(branchNodeSchema), phase: z.enum(['streaming', 'complete', 'interrupted']) }),
+      nodes: z.array(branchNodeSchema), branchParentId: z.string().optional(),
+      phase: z.enum(['streaming', 'complete', 'interrupted']) }),
     z.object({
       kind: z.literal("history"),
       history: conversationHistorySchema,

@@ -103,7 +103,18 @@ export function mergeStreamMessages(
   messages: ConversationMessage[],
   nodes: BranchNode[],
   isGenerating: boolean,
+  branchParentId?: string,
 ): ConversationHistory {
+  if (current && branchParentId !== undefined) {
+    const parentIndex = current.nodes.findIndex(node => node.nodeId === branchParentId || node.messageId === branchParentId);
+    const retainedNodes = current.nodes.slice(0, parentIndex + 1);
+    const retainedIds = new Set(retainedNodes.map(node => node.messageId));
+    current = { ...current, nodes: retainedNodes,
+      messages: current.messages.filter(message => retainedIds.has(message.id)),
+      currentNodeId: branchParentId,
+      isHistoryComplete: current.isHistoryComplete && parentIndex !== -1,
+      missingNodeId: parentIndex === -1 ? branchParentId : current.missingNodeId };
+  }
   const mergedMessages = new Map(current?.messages.map(message => [message.id, message]));
   const mergedNodes = new Map(current?.nodes.map(node => [node.messageId ?? node.nodeId, node]));
   let complete = current?.isHistoryComplete ?? false;
@@ -116,7 +127,7 @@ export function mergeStreamMessages(
   }
   for (const message of messages) mergedMessages.set(message.id, message);
   return {
-    conversationId, title: current?.title ?? '', currentNodeId: current?.currentNodeId ?? nodes.at(-1)?.messageId ?? '',
+    conversationId, title: current?.title ?? '', currentNodeId: nodes.at(-1)?.nodeId ?? nodes.at(-1)?.messageId ?? current?.currentNodeId ?? '',
     messages: [...mergedMessages.values()], nodes: [...mergedNodes.values()],
     isHistoryComplete: complete, missingNodeId: current?.missingNodeId ?? null, isGenerating,
   };

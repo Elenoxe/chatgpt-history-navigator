@@ -77,8 +77,12 @@ export function createMessageStreamParser(onMessage: (value: unknown) => void, o
   };
 }
 
-const requestSchema = z.object({ action: z.literal('next'), conversation_id: z.uuid().optional(),
-  parent_message_id: z.string(), messages: z.array(z.looseObject({ id: z.string(), metadata: z.record(z.string(), z.unknown()).optional() })) });
+const requestBaseSchema = z.object({ conversation_id: z.uuid().optional(), parent_message_id: z.string() });
+const requestSchema = z.discriminatedUnion('action', [
+  requestBaseSchema.extend({ action: z.literal('next'),
+    messages: z.array(z.looseObject({ id: z.string(), metadata: z.record(z.string(), z.unknown()).optional() })) }),
+  requestBaseSchema.extend({ action: z.literal('variant') }),
+]);
 const wsFrameSchema = z.object({ type: z.literal('message'), payload: z.object({
   type: z.literal('conversation-turn-stream'), payload: z.object({ conversation_id: z.uuid(),
     type: z.enum(['stream-item', 'done']), encoded_item: z.string().optional(), stream_item_id: z.string().optional() }) }) });
@@ -86,20 +90,23 @@ const wsFrameSchema = z.object({ type: z.literal('message'), payload: z.object({
 export function installMessageStreamCapture(publisher: ReturnType<typeof createHistoryPublisher>) {
   type Session = ReturnType<typeof createSession>;
   const sessions = new Map<string, Session>();
-  function createSession(userId: string, conversationId: string | undefined, requestStartedAt: number) {
+  function createSession(userId: string, conversationId: string | undefined, requestStartedAt: number, branchParentId: string) {
     const messages = new Map<string, ConversationMessage>();
     const nodes = new Map<string, BranchNode>();
     const seen = new Set<string>();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let finished = false;
     let handedOff = false;
+    let branchPending = true;
     const topics = new Set<string>();
     const emit = (phase: 'streaming' | 'complete' | 'interrupted') => {
       if (timer) clearTimeout(timer);
       timer = undefined;
       if (!conversationId) return;
       if (conversationId && !publisher.isStopped()) publisher.publish({ userId, conversationId, requestStartedAt,
-        result: { kind: 'messages', messages: [...messages.values()], nodes: [...nodes.values()], phase } });
+        result: { kind: 'messages', messages: [...messages.values()], nodes: [...nodes.values()], phase,
+          ...(branchPending ? { branchParentId } : {}) } });
+      branchPending = false;
       messages.clear(); nodes.clear();
     };
     const finish = (phase: 'complete' | 'interrupted') => {
@@ -116,8 +123,11 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
       if (!timer) timer = setTimeout(() => emit('streaming'), 50);
     };
     const bind = (id: string) => {
+      if (finished) return;
       if (conversationId && conversationId !== id) throw new ConversationDataError('Stream conversation changed');
       conversationId = id;
+      const previous = sessions.get(id);
+      if (previous && previous !== session) previous.discard();
       sessions.set(id, session);
       if (messages.size && !timer) timer = setTimeout(() => emit('streaming'), 50);
     };
@@ -132,7 +142,10 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
       if (control.type === 'message_stream_complete') finish('complete');
       if (control.type === 'error') finish('interrupted');
     });
-    const session = { userId, addMessage, bind, feed, seen, topics, finish, get finished() { return finished; }, get handedOff() { return handedOff; } };
+    const session = { userId, addMessage, bind, feed, seen, topics, finish,
+      start: () => emit('streaming'),
+      discard: () => { finished = true; clearTimeout(timer); messages.clear(); nodes.clear(); seen.clear(); },
+      get finished() { return finished; }, get handedOff() { return handedOff; } };
     if (conversationId) bind(conversationId);
     return session;
   }
@@ -158,7 +171,7 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
             if (!parsed.success) continue;
             const item = parsed.data.payload.payload;
             const session = sessions.get(item.conversation_id);
-            if (!session || JSON.parse(getConversationContextSnapshot())[0] !== session.userId) continue;
+            if (!session || !session.handedOff || JSON.parse(getConversationContextSnapshot())[0] !== session.userId) continue;
             if (session.topics.size && !session.topics.has(candidate.topic_id)) continue;
             socketSessions.add(session);
             try {
@@ -201,8 +214,9 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
       const body = typeof init?.body === 'string' ? init.body : input instanceof Request ? await input.text() : null;
       if (body === null) throw new ConversationDataError('Unsupported conversation request body');
       const request = parseApiResponse(requestSchema, JSON.parse(body));
-      session = createSession(userId, request.conversation_id, performance.timeOrigin + performance.now());
-      for (const message of request.messages) session.addMessage({ ...message, metadata: { ...message.metadata, parent_id: request.parent_message_id } });
+      session = createSession(userId, request.conversation_id, performance.timeOrigin + performance.now(), request.parent_message_id);
+      if (request.action === 'next') for (const message of request.messages) session.addMessage({ ...message, metadata: { ...message.metadata, parent_id: request.parent_message_id } });
+      session.start();
       const result = await response;
       if (!result.ok || !result.headers.get('content-type')?.includes('text/event-stream')) throw new ConversationDataError('Invalid conversation stream response');
       await readResponse(result, session);
