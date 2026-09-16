@@ -23,12 +23,79 @@ export default function Timeline() {
   const previewRef = useRef<HTMLDivElement>(null);
   const interactingWithTrack = useRef(false);
   const followedQuestion = useRef<string | null>(null);
+  const layout = useRef<{ conversationId: string | null; tops: Map<string, number>; bottom: boolean; overflow: boolean } | null>(null);
+  const [previewClosing, setPreviewClosing] = useState(false);
   const [preview, setPreview] = useState<{ id: string; conversationId: string | null; anchor: HTMLElement } | null>(null);
+  useLayoutEffect(() => {
+    setPreview(null);
+    setPreviewClosing(false);
+    followedQuestion.current = null;
+    interactingWithTrack.current = false;
+  }, [timeline.conversationId]);
   const question = preview?.conversationId === timeline.conversationId
     ? timeline.questions.find(question => question.id === preview?.id) : undefined;
   const showPreview = (id: string, element: HTMLElement) => {
+    setPreviewClosing(false);
     setPreview({ id, conversationId: timeline.conversationId, anchor: element });
   };
+  const closePreview = () => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) setPreview(null);
+    else setPreviewClosing(true);
+  };
+  const questionIds = JSON.stringify(timeline.questions.map(question => question.id));
+
+  useLayoutEffect(() => {
+    const track = trackRef.current;
+    if (!track) { layout.current = null; return; }
+    const previous = layout.current;
+    const ticks = [...track.querySelectorAll<HTMLElement>('[data-question-id]')];
+    if (previous?.conversationId === timeline.conversationId) {
+      const ids = [...previous.tops.keys()];
+      const appended = ticks.length > ids.length && ids.every((id, index) => ticks[index]?.dataset.questionId === id);
+      if (previous.overflow) {
+        if (appended && previous.bottom) track.scrollTop = track.scrollHeight;
+        else {
+          const bounds = track.getBoundingClientRect();
+          const anchor = ticks.find(tick => {
+            const top = previous.tops.get(tick.dataset.questionId!);
+            return top !== undefined && top >= bounds.top && top < bounds.bottom;
+          });
+          if (anchor) track.scrollTop += anchor.getBoundingClientRect().top - previous.tops.get(anchor.dataset.questionId!)!;
+        }
+      } else if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const duration = parseFloat(getComputedStyle(track).getPropertyValue('--timeline-animation-duration'));
+        for (const tick of ticks) {
+          const top = previous.tops.get(tick.dataset.questionId!);
+          if (top !== undefined) {
+            const delta = top - tick.getBoundingClientRect().top;
+            if (delta) tick.animate([{ transform: `translateY(${delta}px)` }, { transform: 'none' }], { duration, easing: 'ease-out' });
+          }
+        }
+      }
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const duration = parseFloat(getComputedStyle(track).getPropertyValue('--timeline-animation-duration'));
+        for (const tick of ticks) {
+          if (!previous.tops.has(tick.dataset.questionId!)) tick.animate([{ opacity: 0 }, { opacity: 1 }], { duration });
+        }
+      }
+    }
+    const remember = () => {
+      const top = track.getBoundingClientRect().top;
+      layout.current = {
+        conversationId: timeline.conversationId,
+        tops: new Map(ticks.map(tick => [tick.dataset.questionId!, tick.offsetTop + top - track.scrollTop])),
+        bottom: track.scrollHeight - track.clientHeight - track.scrollTop <= 1,
+        overflow: track.scrollHeight > track.clientHeight,
+      };
+    };
+    remember();
+    track.addEventListener('scroll', remember, { passive: true });
+    window.addEventListener('resize', remember);
+    return () => {
+      track.removeEventListener('scroll', remember);
+      window.removeEventListener('resize', remember);
+    };
+  }, [questionIds, timeline.conversationId]);
 
   useLayoutEffect(() => {
     const track = trackRef.current;
@@ -41,8 +108,10 @@ export default function Timeline() {
     if (interactingWithTrack.current) return;
     const bounds = track.getBoundingClientRect();
     const marker = current.getBoundingClientRect();
-    if (marker.top < bounds.top) track.scrollTop += marker.top - bounds.top;
-    else if (marker.bottom > bounds.bottom) track.scrollTop += marker.bottom - bounds.bottom;
+    const delta = marker.top < bounds.top ? marker.top - bounds.top
+      : marker.bottom > bounds.bottom ? marker.bottom - bounds.bottom : 0;
+    if (delta) track.scrollBy({ top: delta, behavior:
+      Math.abs(delta) < track.clientHeight && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
   }, [timeline.visibleQuestionIds, timeline.conversationId]);
 
   useLayoutEffect(() => {
@@ -89,10 +158,10 @@ export default function Timeline() {
   if (!isVisible) return null;
 
   return <>
-    <aside className="timeline" aria-label={t('timelineTitle')} lang={i18n.language}
-      onPointerLeave={() => setPreview(null)}
-      onKeyDown={event => { if (event.key === 'Escape') setPreview(null); }}>
-      <div className="timeline-track" ref={trackRef} onScroll={() => setPreview(null)}
+    <aside key={timeline.conversationId} className="timeline" aria-label={t('timelineTitle')} lang={i18n.language}
+      onPointerLeave={closePreview}
+      onKeyDown={event => { if (event.key === 'Escape') closePreview(); }}>
+      <div className="timeline-track" ref={trackRef} onScroll={closePreview}
         onPointerEnter={() => { interactingWithTrack.current = true; }}
         onPointerLeave={() => { interactingWithTrack.current = false; }}
         onFocus={() => { interactingWithTrack.current = true; }}
@@ -101,13 +170,14 @@ export default function Timeline() {
         }}>
         {timeline.questions.map((item, index) => <button key={item.id} type="button" className="timeline-tick"
           data-question-id={item.id}
-          data-preview={question?.id === item.id || undefined}
+          data-preview={!previewClosing && question?.id === item.id || undefined}
+          data-pending={timeline.pendingQuestionId === item.id || undefined}
           aria-current={timeline.visibleQuestionIds.has(item.id) ? 'true' : undefined}
           aria-label={`${index + 1}. ${item.text || t('timelineNonText')}`}
           aria-describedby={question?.id === item.id ? 'timeline-preview' : undefined}
           onPointerEnter={event => showPreview(item.id, event.currentTarget)}
           onFocus={event => showPreview(item.id, event.currentTarget)}
-          onBlur={() => setPreview(null)}
+          onBlur={closePreview}
           onClick={event => {
             showPreview(item.id, event.currentTarget);
             void timeline.jumpToQuestion(item.id);
@@ -116,7 +186,9 @@ export default function Timeline() {
         </button>)}
       </div>
     </aside>
-    {question && preview && <div id="timeline-preview" role="tooltip" className="timeline-preview"
+    {question && preview && <div key={`${timeline.conversationId}:${question.id}`} id="timeline-preview" role="tooltip" className="timeline-preview"
+      data-closing={previewClosing || undefined}
+      onAnimationEnd={event => { if (event.target === event.currentTarget && previewClosing) setPreview(null); }}
       lang={i18n.language} ref={previewRef}>
       <div className="timeline-preview-title">
         <Markdown remarkPlugins={previewPlugins} components={previewComponents} skipHtml>

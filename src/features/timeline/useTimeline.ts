@@ -18,12 +18,14 @@ export function useTimeline() {
     string | null,
   ];
   const navigation = useRef<AbortController | null>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<{ snapshot: string; id: string } | null>(null);
   const [navigationError, setNavigationError] = useState<{ snapshot: string; id: string } | null>(null);
   useEffect(() => () => navigation.current?.abort(), [snapshot]);
   const jumpToQuestion = async (id: string) => {
     navigation.current?.abort();
     const controller = new AbortController();
     navigation.current = controller;
+    setPendingNavigation({ snapshot, id });
     setNavigationError(null);
     try {
       await scrollToQuestion(id, controller.signal);
@@ -31,6 +33,11 @@ export function useTimeline() {
       if (controller.signal.aborted) return;
       console.error('[chatgpt-timeline] Failed to locate question:', error);
       setNavigationError({ snapshot, id });
+    } finally {
+      if (navigation.current === controller) {
+        navigation.current = null;
+        setPendingNavigation(null);
+      }
     }
   };
   const client = useQueryClient();
@@ -75,6 +82,7 @@ export function useTimeline() {
     identityAvailable: userId !== null,
     questions,
     jumpToQuestion,
+    pendingQuestionId: pendingNavigation?.snapshot === snapshot ? pendingNavigation.id : null,
     navigationErrorId: navigationError?.snapshot === snapshot ? navigationError.id : null,
     visibleQuestionIds: reading.snapshot === snapshot ? reading.ids : new Set<string>(),
     loadedQuestionCount: questions.length,

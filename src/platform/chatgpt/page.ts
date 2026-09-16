@@ -82,6 +82,13 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
         return;
       }
       cleanup();
+      const message = main.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+      if (message && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        message.animate([
+          { backgroundColor: 'color-mix(in srgb, currentColor 10%, transparent)' },
+          { backgroundColor: 'transparent' },
+        ], { duration: 700, easing: 'ease-out' });
+      }
       resolve();
     }
     function advance() {

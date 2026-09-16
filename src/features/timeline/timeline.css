@@ -22,6 +22,9 @@
   --timeline-tick-radius: 0;
   --timeline-animation-duration: 160ms;
   --timeline-animation-easing: ease-out;
+  --timeline-pending-duration: 1400ms;
+  --timeline-pending-min-opacity: 0.55;
+  --timeline-pending-max-opacity: 0.85;
   --timeline-focus-color: var(--tw-color-muted);
   --timeline-focus-radius: 3px;
 
@@ -65,6 +68,7 @@
   transform: translateY(-50%);
   width: var(--timeline-width);
   color: var(--timeline-tick-color);
+  animation: timeline-enter var(--timeline-animation-duration) var(--timeline-animation-easing);
 }
 
 .timeline-track {
@@ -89,6 +93,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
+  overflow-anchor: none;
   padding: var(--timeline-track-padding) 0;
 }
 .timeline-track::-webkit-scrollbar {
@@ -120,40 +125,47 @@
   opacity: var(--timeline-tick-opacity);
   transition:
     width var(--timeline-animation-duration) var(--timeline-animation-easing),
+    color var(--timeline-animation-duration) var(--timeline-animation-easing),
     opacity var(--timeline-animation-duration) var(--timeline-animation-easing);
 }
-.timeline-tick:has(+ .timeline-tick[data-preview]),
-.timeline-tick[data-preview] + .timeline-tick {
-  --marker-progress: 0.7;
-}
-.timeline-tick:has(+ .timeline-tick + .timeline-tick[data-preview]),
-.timeline-tick[data-preview] + .timeline-tick + .timeline-tick {
-  --marker-progress: 0.4;
-}
-.timeline-tick:has(
-  + .timeline-tick + .timeline-tick + .timeline-tick[data-preview]
-),
-.timeline-tick[data-preview]
-  + .timeline-tick
-  + .timeline-tick
-  + .timeline-tick {
+/* Equal specificity, weakest first: overlapping hover/pending waves use the
+   strongest expansion, regardless of which target is on either side. */
+.timeline-tick:where(
+  :has(+ .timeline-tick + .timeline-tick + .timeline-tick:is([data-preview], [data-pending])),
+  :is([data-preview], [data-pending]) + .timeline-tick + .timeline-tick + .timeline-tick
+) {
   --marker-progress: 0.2;
 }
-.timeline-tick[data-preview] {
+.timeline-tick:where(
+  :has(+ .timeline-tick + .timeline-tick:is([data-preview], [data-pending])),
+  :is([data-preview], [data-pending]) + .timeline-tick + .timeline-tick
+) {
+  --marker-progress: 0.4;
+}
+.timeline-tick:where(
+  :has(+ .timeline-tick:is([data-preview], [data-pending])),
+  :is([data-preview], [data-pending]) + .timeline-tick
+) {
+  --marker-progress: 0.7;
+}
+.timeline-tick[data-preview],
+.timeline-tick[data-pending] {
   --marker-progress: 1;
 }
 .timeline-tick[aria-current="true"] span {
   color: var(--timeline-tick-current-color);
   opacity: var(--timeline-tick-current-opacity);
 }
-.timeline-track:has([data-preview])
-  .timeline-tick[aria-current="true"]:not([data-preview])
-  span {
-  color: var(--timeline-tick-color);
-  opacity: var(--timeline-tick-opacity);
-}
-.timeline-tick[data-preview] span {
+.timeline-tick[data-preview] span,
+.timeline-tick[data-pending] span {
   color: var(--timeline-tick-active-color);
+  opacity: var(--timeline-tick-active-opacity);
+}
+.timeline-tick[data-pending] span {
+  animation: timeline-pending var(--timeline-pending-duration) ease-in-out infinite;
+}
+.timeline-tick[data-pending][data-preview] span {
+  animation: none;
   opacity: var(--timeline-tick-active-opacity);
 }
 .timeline-tick:focus-visible {
@@ -163,6 +175,7 @@
 }
 
 .timeline-preview {
+  animation: timeline-enter var(--timeline-animation-duration) var(--timeline-animation-easing);
   --preview-right: calc(
     var(--timeline-right) + var(--timeline-width) + var(--timeline-preview-gap)
   );
@@ -194,6 +207,21 @@
   overflow-wrap: anywhere;
   font-size: var(--timeline-preview-font-size);
   line-height: var(--timeline-preview-line-height);
+}
+.timeline-preview[data-closing] {
+  animation: timeline-leave var(--timeline-animation-duration) var(--timeline-animation-easing) forwards;
+}
+@keyframes timeline-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes timeline-leave {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes timeline-pending {
+  0%, 100% { opacity: var(--timeline-pending-max-opacity); }
+  50% { opacity: var(--timeline-pending-min-opacity); }
 }
 .timeline-preview-title {
   display: block;
@@ -270,6 +298,12 @@
   margin-right: 4px;
 }
 @media (prefers-reduced-motion: reduce) {
+  .timeline,
+  .timeline-preview,
+  .timeline-preview[data-closing],
+  .timeline-tick[data-pending] span {
+    animation: none;
+  }
   .timeline-tick span {
     transition: none;
   }
