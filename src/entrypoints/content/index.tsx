@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
 import App from './App';
 import { i18n, initI18n } from '@/i18n';
-import { getPageLanguage, startConversationContextObserver } from '@/platform/chatgpt/page';
+import { getPageLanguage, hideNativeTimeline, startConversationContextObserver } from '@/platform/chatgpt/page';
 import { startCapturedHistorySync } from '@/features/timeline/query';
 import './style.css';
 
@@ -26,6 +26,8 @@ export default defineContentScript({
       });
     }
     if (ctx.isInvalid) return;
+    const restoreNativeTimeline = hideNativeTimeline();
+    ctx.onInvalidated(restoreNativeTimeline);
     await initI18n(getPageLanguage());
     if (ctx.isInvalid) return;
 
@@ -54,6 +56,7 @@ export default defineContentScript({
         return root;
       },
       onRemove(root) {
+        restoreNativeTimeline();
         stopCapturedHistorySync();
         stopObservingConversationContext();
         root?.unmount();

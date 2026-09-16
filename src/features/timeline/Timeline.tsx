@@ -2,7 +2,6 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { hideNativeTimeline } from '../../platform/chatgpt/page';
 import { useTimeline } from './useTimeline';
 import './timeline.css';
 
@@ -16,9 +15,6 @@ export default function Timeline() {
   const { t, i18n } = useTranslation();
   const timeline = useTimeline();
   const isVisible = !!timeline.conversationId && timeline.questions.length > 0;
-  useLayoutEffect(() => {
-    if (isVisible) return hideNativeTimeline();
-  }, [isVisible]);
   const trackRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const interactingWithTrack = useRef(false);
