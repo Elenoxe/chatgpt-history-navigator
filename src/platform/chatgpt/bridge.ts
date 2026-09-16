@@ -14,13 +14,14 @@ const cancelLoadQuestionEvent = 'chatgpt-timeline:cancel-load-question';
 const revealRequestSchema = z.object({
   messageId: z.uuid(),
   pathname: z.string(),
-  action: z.enum(['reveal', 'refresh-pagination', 'stop-pagination']).default('reveal'),
+  action: z.enum(['reveal', 'navigation-pending', 'cancel-navigation', 'refresh-pagination', 'stop-pagination']).default('reveal'),
 });
 
 export function installNavigationHandlers(
   reveal: (messageId: string) => boolean,
   loadHistory: (messageId: string, signal: AbortSignal) => Promise<boolean>,
   observePagination: (active: boolean) => void,
+  controlNavigation: (messageId: string, cancel: boolean) => boolean,
 ) {
   document.addEventListener(revealEvent, event => {
     const target = event.target;
@@ -32,6 +33,9 @@ export function installNavigationHandlers(
     let revealed = false;
     try {
       if (parsed.data.action === 'reveal') revealed = reveal(parsed.data.messageId);
+      else if (parsed.data.action === 'navigation-pending' || parsed.data.action === 'cancel-navigation') {
+        revealed = controlNavigation(parsed.data.messageId, parsed.data.action === 'cancel-navigation');
+      }
       else observePagination(parsed.data.action === 'refresh-pagination');
     }
     catch (error) { console.warn('[chatgpt-timeline] Native question reveal failed:', error); }
@@ -96,6 +100,14 @@ export function requestQuestionHistory(messageId: string, signal: AbortSignal): 
 
 export function tryRevealQuestion(messageId: string): boolean {
   return dispatchNavigationAction(messageId, 'reveal');
+}
+
+export function isNativeNavigationPending(messageId: string): boolean {
+  return dispatchNavigationAction(messageId, 'navigation-pending');
+}
+
+export function cancelNativeNavigation(messageId: string) {
+  dispatchNavigationAction(messageId, 'cancel-navigation');
 }
 
 export function observeHistoryPagination(messageId: string, active: boolean) {

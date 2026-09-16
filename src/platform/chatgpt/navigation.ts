@@ -4,9 +4,22 @@
 // If that contract changes, return false and let DOM navigation take over.
 type Fiber = {
   return?: Fiber;
+  memoizedState?: { memoizedState?: unknown; next?: Fiber['memoizedState'] };
   memoizedProps?: Record<string, unknown>;
   updateQueue?: { memoCache?: { data?: unknown[][] } };
 };
+
+let nativeNavigation: { messageId: string; pending: () => boolean; cancel: () => void } | undefined;
+
+export function controlNativeNavigation(messageId: string, cancel: boolean): boolean {
+  if (nativeNavigation?.messageId !== messageId) return false;
+  if (cancel) {
+    nativeNavigation.cancel();
+    nativeNavigation = undefined;
+    return false;
+  }
+  return nativeNavigation.pending();
+}
 
 let paginationObservation: {
   element: Element;
@@ -102,6 +115,8 @@ export function revealQuestion(messageId: string): boolean {
   if (!key) return false;
   let fiber = (element as unknown as Record<string, Fiber>)[key];
   const callbacks = new Set<(turnId: string, messageId: string) => void>();
+  const finishCallbacks = new Set<(requestId: number) => void>();
+  const refs: { current: unknown }[] = [];
   let flushSync: ((callback: () => void) => void) | undefined;
   for (; fiber; fiber = fiber.return) {
     const props = fiber.memoizedProps;
@@ -109,19 +124,41 @@ export function revealQuestion(messageId: string): boolean {
       flushSync = props.flushSync as typeof flushSync;
     }
     if (!props?.conversation || !('scrollContainerRef' in props) || !('enableTableOfContents' in props)) continue;
+    for (let hook = fiber.memoizedState; hook; hook = hook.next) {
+      const value = hook.memoizedState;
+      if (value && typeof value === 'object' && 'current' in value) refs.push(value);
+    }
     for (const value of fiber.updateQueue?.memoCache?.data?.flat() ?? []) {
-      if (typeof value !== 'function' || value.length !== 2) continue;
+      if (typeof value !== 'function') continue;
       const source = Function.prototype.toString.call(value);
-      if (['messageId', 'turnId', 'requestId'].every(field =>
+      if (value.length === 1 && source.includes('.requestId===') &&
+          source.includes('.current=null') && !source.includes('turnId')) {
+        finishCallbacks.add(value as (requestId: number) => void);
+      }
+      if (value.length === 2 && ['messageId', 'turnId', 'requestId'].every(field =>
         new RegExp(`\\b${field}\\s*:`).test(source))) {
         callbacks.add(value as (turnId: string, messageId: string) => void);
       }
     }
   }
-  if (callbacks.size !== 1 || !flushSync) return false;
+  if (callbacks.size !== 1 || finishCallbacks.size !== 1 || !flushSync) return false;
   const callback = [...callbacks][0]!;
   // Commit the reveal immediately, including when background React work is
   // throttled. No private state is overwritten and the host owns rendering.
   flushSync(() => callback(messageId, messageId));
-  return document.querySelector(`main [data-message-id="${CSS.escape(messageId)}"]`) !== null;
+  const ref = refs.find(ref => {
+    const value = ref.current;
+    return value && typeof value === 'object' && 'messageId' in value &&
+      value.messageId === messageId && 'requestId' in value && typeof value.requestId === 'number';
+  });
+  if (!ref) return false;
+  const request = ref.current as { requestId: number };
+  const finish = [...finishCallbacks][0]!;
+  const commit = flushSync;
+  nativeNavigation = {
+    messageId,
+    pending: () => ref.current === request,
+    cancel: () => { if (ref.current === request) commit(() => finish(request.requestId)); },
+  };
+  return true;
 }

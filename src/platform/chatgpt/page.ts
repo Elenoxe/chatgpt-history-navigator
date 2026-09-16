@@ -1,8 +1,17 @@
 import { z } from 'zod';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
-import { tryRevealQuestion, requestQuestionHistory, observeHistoryPagination } from './bridge';
+import { tryRevealQuestion, requestQuestionHistory, observeHistoryPagination, isNativeNavigationPending, cancelNativeNavigation } from './bridge';
 
 const pageChangeEvent = 'chatgpt-timeline:pagechange';
+
+export function hideNativeTimeline(): () => void {
+  const style = document.createElement('style');
+  // Hide the native TOC's fixed wrapper, keeping its React navigation state intact.
+  // A page-level rule also covers TOCs mounted after history finishes loading.
+  style.textContent = 'div.fixed:has(button[data-toc-item-index]) { display: none !important; }';
+  document.head.append(style);
+  return () => style.remove();
+}
 
 // DOM is used only for navigation and reading position; content stays in the API cache.
 export async function scrollToQuestion(messageId: string, signal: AbortSignal): Promise<void> {
@@ -13,6 +22,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     let nativeTarget: Element | null = null;
+    let nativeAccepted = false;
     let root: HTMLElement | null = null;
     let observedMain: HTMLElement | null = null;
     let historyLoad: 'idle' | 'pending' | 'complete' | 'unavailable' = 'idle';
@@ -22,6 +32,11 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
     const cleanup = () => {
       stopped = true;
       historyController.abort();
+      const nativePending = nativeAccepted && isNativeNavigationPending(messageId);
+      cancelNativeNavigation(messageId);
+      if (nativePending && root) {
+        root.scrollTo({ top: root.scrollTop, left: root.scrollLeft, behavior: 'instant' });
+      }
       observeHistoryPagination(messageId, false);
       clearTimeout(timer);
       mutations.disconnect();
@@ -48,6 +63,26 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
       if (stopped) return;
       clearTimeout(timer);
       timer = setTimeout(advance, delay);
+    }
+    function finishOrLoadContext(main: HTMLElement, viewport: HTMLElement) {
+      const sentinel = main.querySelector<HTMLElement>('[data-testid="conversation-pagination-sentinel"]');
+      const boundary = sentinel?.getBoundingClientRect();
+      const visibleArea = viewport.getBoundingClientRect();
+      // Match the host pagination observer's `80px 0px 0px` rootMargin.
+      // A target at the loaded history boundary needs an older page as reading
+      // context. The native callback chooses num_turns and preserves scroll position.
+      if (sentinel && boundary && boundary.bottom >= visibleArea.top - 80 && boundary.top <= visibleArea.bottom) {
+        if (sentinel.querySelector('button')) {
+          cleanup();
+          reject(new Error('Native history pagination failed; retry loading earlier messages on the page'));
+          return;
+        }
+        observeHistoryPagination(messageId, true);
+        schedule(100);
+        return;
+      }
+      cleanup();
+      resolve();
     }
     function advance() {
       if (stopped) return;
@@ -87,10 +122,19 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
           nativeTarget = nativeAnchor;
           // Also replace the native target when it was already mounted: an old
           // host navigation must not keep aligning an earlier question.
-          tryRevealQuestion(messageId);
+          nativeAccepted = tryRevealQuestion(messageId);
         }
+        // Observe the host's request lifecycle, not an arbitrary wait deadline.
+        // Its own completion/expiry hands control back without failing our jump.
+        if (nativeAccepted && isNativeNavigationPending(messageId)) { schedule(100); return; }
         const message = main.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
         if (message) {
+          const bounds = message.getBoundingClientRect();
+          const visibleArea = root.getBoundingClientRect();
+          if (nativeAccepted && bounds.bottom > visibleArea.top && bounds.top < visibleArea.bottom) {
+            finishOrLoadContext(main, root);
+            return;
+          }
           const turn = message.closest<HTMLElement>('[data-turn-id]') ?? message;
           turn.scrollIntoView({ block: 'start', behavior: 'instant' });
           const rect = message.getBoundingClientRect();
@@ -98,8 +142,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
           // Instant scrolling is synchronous. Do not wait for rAF, which can be
           // suspended in hidden tabs even after the target has been positioned.
           if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
-            cleanup();
-            resolve();
+            finishOrLoadContext(main, root);
             return;
           }
         } else if (placeholder) {
