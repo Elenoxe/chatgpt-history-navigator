@@ -20,24 +20,18 @@ export default function Timeline() {
   const interactingWithTrack = useRef(false);
   const followedQuestion = useRef<string | null>(null);
   const layout = useRef<{ conversationId: string | null; tops: Map<string, number>; bottom: boolean; overflow: boolean } | null>(null);
-  const [previewClosing, setPreviewClosing] = useState(false);
   const [preview, setPreview] = useState<{ id: string; conversationId: string | null; anchor: HTMLElement } | null>(null);
   useLayoutEffect(() => {
     setPreview(null);
-    setPreviewClosing(false);
     followedQuestion.current = null;
     interactingWithTrack.current = false;
   }, [timeline.conversationId]);
   const question = preview?.conversationId === timeline.conversationId
     ? timeline.questions.find(question => question.id === preview?.id) : undefined;
   const showPreview = (id: string, element: HTMLElement) => {
-    setPreviewClosing(false);
     setPreview({ id, conversationId: timeline.conversationId, anchor: element });
   };
-  const closePreview = () => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) setPreview(null);
-    else setPreviewClosing(true);
-  };
+  const closePreview = () => setPreview(null);
   const questionIds = JSON.stringify(timeline.questions.map(question => question.id));
 
   useLayoutEffect(() => {
@@ -166,7 +160,7 @@ export default function Timeline() {
         }}>
         {timeline.questions.map((item, index) => <button key={item.id} type="button" className="timeline-tick"
           data-question-id={item.id}
-          data-preview={!previewClosing && question?.id === item.id || undefined}
+          data-preview={question?.id === item.id || undefined}
           data-pending={timeline.pendingQuestionId === item.id || undefined}
           aria-current={timeline.visibleQuestionIds.has(item.id) ? 'true' : undefined}
           aria-label={`${index + 1}. ${item.text || t('timelineNonText')}`}
@@ -183,8 +177,6 @@ export default function Timeline() {
       </div>
     </aside>
     {question && preview && <div key={`${timeline.conversationId}:${question.id}`} id="timeline-preview" role="tooltip" className="timeline-preview"
-      data-closing={previewClosing || undefined}
-      onAnimationEnd={event => { if (event.target === event.currentTarget && previewClosing) setPreview(null); }}
       lang={i18n.language} ref={previewRef}>
       <div className="timeline-preview-title">
         <Markdown remarkPlugins={previewPlugins} components={previewComponents} skipHtml>
