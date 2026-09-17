@@ -39,7 +39,7 @@ export default defineContentScript({
     ctx.onInvalidated(stopObservingConversationContext);
 
     const ui = await createShadowRootUi(ctx, {
-      name: 'chatgpt-timeline',
+      name: 'chatgpt-history-navigator',
       position: 'inline',
       anchor: 'body',
       onMount(container) {

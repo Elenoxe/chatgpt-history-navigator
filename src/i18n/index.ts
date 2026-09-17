@@ -37,7 +37,7 @@ export function usePageLanguage() {
       observePageLanguage((language) => {
         void syncI18nLanguage(language).catch((error) => {
           console.error(
-            "[chatgpt-timeline] Failed to sync page language:",
+            "[chatgpt-history-navigator] Failed to sync page language:",
             error,
           );
         });

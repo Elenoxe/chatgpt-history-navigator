@@ -182,7 +182,7 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
               }
               if (session.finished) socketSessions.delete(session);
             } catch {
-              console.warn('[chatgpt-timeline] Unable to parse message stream');
+              console.warn('[chatgpt-history-navigator] Unable to parse message stream');
               session.finish('interrupted');
             }
           }
@@ -223,7 +223,7 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
     } catch {
       // A handed-off stream can be aborted normally by the page after switching to WS.
       if (!session?.handedOff) session?.finish('interrupted');
-      if (!session) console.warn('[chatgpt-timeline] Unsupported conversation submission');
+      if (!session) console.warn('[chatgpt-history-navigator] Unsupported conversation submission');
     }
   };
   return {

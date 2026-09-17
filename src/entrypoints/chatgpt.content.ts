@@ -18,7 +18,7 @@ export default defineContentScript({
       let captureInput = input;
       if (input instanceof Request && (init?.method ?? input.method).toUpperCase() === 'POST' && !init?.body) {
         try { captureInput = input.clone(); }
-        catch { console.warn('[chatgpt-timeline] Unable to clone submitted request'); }
+        catch { console.warn('[chatgpt-history-navigator] Unable to clone submitted request'); }
       }
       const responsePromise = originalFetch.call(this, input, init);
       if (publisher.isStopped()) return responsePromise;
@@ -76,7 +76,7 @@ export default defineContentScript({
           }
         }).catch(() => publisher.publish({ ...requestContext, result: { kind: 'unavailable', reason: failureReason } }));
       } catch {
-        console.warn('[chatgpt-timeline] Unable to observe history request');
+      console.warn('[chatgpt-history-navigator] Unable to observe history request');
       }
       return responsePromise;
     };

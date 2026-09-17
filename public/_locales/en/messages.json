@@ -1,8 +1,8 @@
 {
   "extensionName": {
-    "message": "ChatGPT Timeline"
+    "message": "ChatGPT History Navigator"
   },
   "extensionDescription": {
-    "message": "A timeline sidebar for navigating ChatGPT conversations."
+    "message": "Browse and navigate the complete history of ChatGPT conversations."
   }
 }

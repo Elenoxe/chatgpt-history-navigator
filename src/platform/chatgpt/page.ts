@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { tryRevealQuestion, requestQuestionHistory, observeHistoryPagination, isNativeNavigationPending, cancelNativeNavigation } from './bridge';
 
-const pageChangeEvent = 'chatgpt-timeline:pagechange';
+const pageChangeEvent = 'chatgpt-history-navigator:pagechange';
 
 export function hideNativeTimeline(): () => void {
   const style = document.createElement('style');

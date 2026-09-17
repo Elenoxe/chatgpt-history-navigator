@@ -109,7 +109,7 @@ export function startCapturedHistorySync(client: QueryClient) {
     }
     if (capture.result.kind === 'unavailable') {
       clearPages();
-      console.warn('[chatgpt-timeline] History capture unavailable:', capture.result.reason);
+      console.warn('[chatgpt-history-navigator] History capture unavailable:', capture.result.reason);
       return;
     }
     let history: ConversationHistory;
@@ -130,7 +130,7 @@ export function startCapturedHistorySync(client: QueryClient) {
       } catch (error) {
         clearPages();
         if (!(error instanceof ConversationDataError)) throw error;
-        console.warn('[chatgpt-timeline] Captured history cannot be merged:', error.message);
+        console.warn('[chatgpt-history-navigator] Captured history cannot be merged:', error.message);
         return;
       }
     }

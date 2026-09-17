@@ -6,11 +6,11 @@ import {
   branchNodeSchema,
 } from "./conversation";
 
-const channel = "chatgpt-timeline:history";
-const revealEvent = 'chatgpt-timeline:reveal-question';
-const loadQuestionEvent = 'chatgpt-timeline:load-question';
-const loadQuestionDoneEvent = 'chatgpt-timeline:load-question-done';
-const cancelLoadQuestionEvent = 'chatgpt-timeline:cancel-load-question';
+const channel = "chatgpt-history-navigator:history";
+const revealEvent = 'chatgpt-history-navigator:reveal-question';
+const loadQuestionEvent = 'chatgpt-history-navigator:load-question';
+const loadQuestionDoneEvent = 'chatgpt-history-navigator:load-question-done';
+const cancelLoadQuestionEvent = 'chatgpt-history-navigator:cancel-load-question';
 const revealRequestSchema = z.object({
   messageId: z.uuid(),
   pathname: z.string(),
@@ -38,7 +38,7 @@ export function installNavigationHandlers(
       }
       else observePagination(parsed.data.action === 'refresh-pagination');
     }
-    catch (error) { console.warn('[chatgpt-timeline] Native question reveal failed:', error); }
+    catch (error) { console.warn('[chatgpt-history-navigator] Native question reveal failed:', error); }
     target.dataset.revealed = String(revealed);
   });
   document.addEventListener(loadQuestionEvent, event => {
@@ -56,7 +56,7 @@ export function installNavigationHandlers(
       target.dataset.result = loaded ? 'loaded' : 'unavailable';
     }).catch(error => {
       if (controller.signal.aborted) return;
-      console.error('[chatgpt-timeline] Native history load failed:', error);
+      console.error('[chatgpt-history-navigator] Native history load failed:', error);
       target.dataset.result = 'error';
     }).finally(() => {
       target.removeEventListener(cancelLoadQuestionEvent, cancel);

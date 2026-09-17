@@ -1,6 +1,6 @@
 {
-  "name": "chatgpt-timeline",
-  "description": "A timeline sidebar for navigating ChatGPT conversations.",
+  "name": "chatgpt-history-navigator",
+  "description": "Browse and navigate the complete history of ChatGPT conversations.",
   "private": true,
   "version": "0.0.0",
   "type": "module",

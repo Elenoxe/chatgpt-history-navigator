@@ -31,7 +31,7 @@ export function useTimeline() {
       await scrollToQuestion(id, controller.signal);
     } catch (error) {
       if (controller.signal.aborted) return;
-      console.error('[chatgpt-timeline] Failed to locate question:', error);
+      console.error('[chatgpt-history-navigator] Failed to locate question:', error);
       setNavigationError({ snapshot, id });
     } finally {
       if (navigation.current === controller) {

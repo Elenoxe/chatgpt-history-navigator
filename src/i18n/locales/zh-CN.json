@@ -1,5 +1,5 @@
 {
-  "timelineTitle": "时间线",
-  "timelineNavigationFailed": "ChatGPT 未能完成这条提问的加载或定位，请再次点击重试。",
+  "timelineTitle": "历史导航",
+  "timelineNavigationFailed": "ChatGPT 未能完成这条消息的加载或定位，请再次点击重试。",
   "timelineNonText": "图片、附件或其他非文本提问"
 }
