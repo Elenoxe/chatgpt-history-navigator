@@ -1,15 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import Markdown, { type Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useTimeline } from './useTimeline';
+import { MessagePreview } from './MessagePreview';
+import { ScrollFade } from './ScrollFade';
 import './timeline.css';
-
-const previewComponents: Components = {
-  a: ({ children }) => <span>{children}</span>,
-  img: ({ alt }) => <span>{alt}</span>,
-};
-const previewPlugins = [remarkGfm];
 
 export default function Timeline() {
   const { t, i18n } = useTranslation();
@@ -17,11 +11,15 @@ export default function Timeline() {
   const isVisible = !!timeline.conversationId && timeline.questions.length > 0;
   const trackRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const keepPreview = () => clearTimeout(closeTimer.current);
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
   const interactingWithTrack = useRef(false);
   const followedQuestion = useRef<string | null>(null);
   const layout = useRef<{ conversationId: string | null; tops: Map<string, number>; bottom: boolean; overflow: boolean } | null>(null);
   const [preview, setPreview] = useState<{ id: string; conversationId: string | null; anchor: HTMLElement } | null>(null);
   useLayoutEffect(() => {
+    clearTimeout(closeTimer.current);
     setPreview(null);
     followedQuestion.current = null;
     interactingWithTrack.current = false;
@@ -29,9 +27,19 @@ export default function Timeline() {
   const question = preview?.conversationId === timeline.conversationId
     ? timeline.questions.find(question => question.id === preview?.id) : undefined;
   const showPreview = (id: string, element: HTMLElement) => {
+    keepPreview();
     setPreview({ id, conversationId: timeline.conversationId, anchor: element });
   };
-  const closePreview = () => setPreview(null);
+  const closePreview = () => { keepPreview(); setPreview(null); };
+  const scheduleClose = () => {
+    keepPreview();
+    closeTimer.current = setTimeout(() => {
+      const card = previewRef.current;
+      if (card?.matches(':hover') || card?.contains(card.getRootNode() instanceof ShadowRoot
+        ? (card.getRootNode() as ShadowRoot).activeElement : document.activeElement)) return;
+      setPreview(null);
+    }, 200);
+  };
   const questionIds = JSON.stringify(timeline.questions.map(question => question.id));
 
   useLayoutEffect(() => {
@@ -139,9 +147,24 @@ export default function Timeline() {
     const rail = preview.anchor.closest('.timeline');
     if (rail) observer.observe(rail);
     window.addEventListener('resize', updatePosition);
+    const containWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return; // Preserve browser zoom gestures.
+      const target = event.target instanceof Element ? event.target : null;
+      const scroller = target?.closest<HTMLElement>('.preview-scroll');
+      const horizontal = event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      const delta = horizontal ? event.deltaX || event.deltaY : event.deltaY;
+      const container = horizontal ? scroller : scroller?.closest('.preview-scroll-horizontal')
+        ?.parentElement?.closest<HTMLElement>('.preview-scroll') ?? scroller;
+      const position = horizontal ? container?.scrollLeft : container?.scrollTop;
+      const remaining = container ? horizontal ? container.scrollWidth - container.clientWidth - container.scrollLeft
+        : container.scrollHeight - container.clientHeight - container.scrollTop : 0;
+      if (!container || (delta < 0 && (position ?? 0) <= 0) || (delta > 0 && remaining <= 1)) event.preventDefault();
+    };
+    card.addEventListener('wheel', containWheel, { passive: false });
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', updatePosition);
+      card.removeEventListener('wheel', containWheel);
     };
   }, [preview, question]);
 
@@ -149,7 +172,7 @@ export default function Timeline() {
 
   return <>
     <aside key={timeline.conversationId} className="timeline" aria-label={t('timelineTitle')} lang={i18n.language}
-      onPointerLeave={closePreview}
+      onPointerEnter={keepPreview} onPointerLeave={scheduleClose}
       onKeyDown={event => { if (event.key === 'Escape') closePreview(); }}>
       <div className="timeline-track" ref={trackRef} onScroll={closePreview}
         onPointerEnter={() => { interactingWithTrack.current = true; }}
@@ -167,7 +190,7 @@ export default function Timeline() {
           aria-describedby={question?.id === item.id ? 'timeline-preview' : undefined}
           onPointerEnter={event => showPreview(item.id, event.currentTarget)}
           onFocus={event => showPreview(item.id, event.currentTarget)}
-          onBlur={closePreview}
+          onBlur={scheduleClose}
           onClick={event => {
             showPreview(item.id, event.currentTarget);
             void timeline.jumpToQuestion(item.id);
@@ -176,21 +199,26 @@ export default function Timeline() {
         </button>)}
       </div>
     </aside>
-    {question && preview && <div key={`${timeline.conversationId}:${question.id}`} id="timeline-preview" role="tooltip" className="timeline-preview"
-      lang={i18n.language} ref={previewRef}>
-      <div className="timeline-preview-title">
-        <Markdown remarkPlugins={previewPlugins} components={previewComponents} skipHtml>
-          {question.text || t('timelineNonText')}
-        </Markdown>
+    {question && preview && <div key={`${timeline.conversationId}:${question.id}`} id="timeline-preview" role="dialog"
+      aria-labelledby="timeline-preview-title" className="timeline-preview"
+      lang={i18n.language} ref={previewRef} onPointerEnter={keepPreview} onPointerLeave={scheduleClose}
+      onFocus={keepPreview} onBlur={scheduleClose}
+      onKeyDown={event => {
+        if (event.key === 'Escape') { preview.anchor.focus(); closePreview(); }
+      }}>
+      <div id="timeline-preview-title" className="timeline-preview-title">
+        <MessagePreview message={question.message} title />
       </div>
       {timeline.navigationErrorId === question.id && <div role="alert" className="timeline-preview-body">
         {t('timelineNavigationFailed')}
       </div>}
-      {question.response && <div className="timeline-preview-body">
-        <Markdown remarkPlugins={previewPlugins} components={previewComponents} skipHtml>
-          {question.response}
-        </Markdown>
-      </div>}
+      {question.responses.length > 0 && <ScrollFade label={t('previewResponse')}>
+        <div className="timeline-preview-body">
+          {question.responses.map(message => <div className="preview-message" key={message.id}>
+            <MessagePreview message={message} />
+          </div>)}
+        </div>
+      </ScrollFade>}
     </div>}
   </>;
 }

@@ -3,13 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { getTimelineQueryOptions } from "./query";
 import type { ConversationMessage } from '@/platform/chatgpt/conversation';
-
-function messageText(message: ConversationMessage) {
-  if (message.content.content_type !== 'text' && message.content.content_type !== 'multimodal_text') return '';
-  return (Array.isArray(message.content.parts)
-    ? message.content.parts.filter((part): part is string => typeof part === 'string').join('\n')
-    : typeof message.content.text === 'string' ? message.content.text : '').trim();
-}
+import { messageText } from './previewContent';
 
 export function useTimeline() {
   const snapshot = useSyncExternalStore(subscribeConversationContext, getConversationContextSnapshot);
@@ -46,17 +40,16 @@ export function useTimeline() {
   );
   const questions = useMemo(
     () => {
-      const questions: { id: string; text: string; response: string }[] = [];
+      const questions: { id: string; text: string; message: ConversationMessage; responses: ConversationMessage[] }[] = [];
       let current: (typeof questions)[number] | undefined;
       for (const message of query.data?.messages ?? []) {
         if (message.role === 'user') {
-          current = message.hidden ? undefined : { id: message.id, text: messageText(message), response: '' };
+          current = message.hidden ? undefined : { id: message.id, text: messageText(message), message, responses: [] };
           if (current) questions.push(current);
-        } else if (current && !message.hidden &&
+        } else if (current && message.role === 'assistant' && !message.hidden &&
             (message.recipient === null || message.recipient === 'all') &&
             (message.channel === null || message.channel === 'final')) {
-          const text = messageText(message);
-          if (text) current.response += (current.response ? '\n' : '') + text;
+          current.responses.push(message);
         }
       }
       return questions;

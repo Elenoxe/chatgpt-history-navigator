@@ -1,5 +1,9 @@
 {
   "timelineTitle": "History Navigator",
+  "previewSource": "Source",
+  "previewImage": "Image attachment",
+  "previewTable": "Table",
+  "previewResponse": "Assistant reply preview",
   "timelineNavigationFailed": "ChatGPT couldn't finish loading or locating this message. Click to try again.",
   "timelineNonText": "Image, attachment, or other non-text message"
 }
