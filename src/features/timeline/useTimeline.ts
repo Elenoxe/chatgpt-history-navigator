@@ -4,8 +4,12 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { getTimelineQueryOptions } from "./query";
 import type { ConversationMessage } from '@/platform/chatgpt/conversation';
 import { messageText } from './previewContent';
+import { useErrorToast } from '@/shared/Toast';
+import { useTranslation } from 'react-i18next';
 
 export function useTimeline() {
+  const showError = useErrorToast();
+  const { t } = useTranslation();
   const snapshot = useSyncExternalStore(subscribeConversationContext, getConversationContextSnapshot);
   const [userId, conversationId] = JSON.parse(snapshot) as [
     string | null,
@@ -17,20 +21,18 @@ export function useTimeline() {
   }), [snapshot]);
   const navigation = useRef<AbortController | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<{ snapshot: string; id: string } | null>(null);
-  const [navigationError, setNavigationError] = useState<{ snapshot: string; id: string } | null>(null);
   useEffect(() => () => navigation.current?.abort(), [snapshot]);
   const jumpToQuestion = async (id: string) => {
     navigation.current?.abort();
     const controller = new AbortController();
     navigation.current = controller;
     setPendingNavigation({ snapshot, id });
-    setNavigationError(null);
     try {
       await scrollToQuestion(id, controller.signal);
     } catch (error) {
       if (controller.signal.aborted) return;
       console.error('[chatgpt-history-navigator] Failed to locate question:', error);
-      setNavigationError({ snapshot, id });
+      showError(t('timelineNavigationFailed'));
     } finally {
       if (navigation.current === controller) {
         navigation.current = null;
@@ -81,7 +83,6 @@ export function useTimeline() {
     questions,
     jumpToQuestion,
     pendingQuestionId: pendingNavigation?.snapshot === snapshot ? pendingNavigation.id : null,
-    navigationErrorId: navigationError?.snapshot === snapshot ? navigationError.id : null,
     visibleQuestionIds: reading.snapshot === snapshot ? reading.ids : new Set<string>(),
     loadedQuestionCount: questions.length,
     totalQuestionCount: query.data?.isHistoryComplete ? questions.length : null,

@@ -1,5 +1,5 @@
 import { createHistoryPublisher, installNavigationHandlers, type HistoryCaptureEvent } from '@/platform/chatgpt/bridge';
-import { revealQuestion, loadQuestionHistory, setHistoryPaginationObservation, controlNativeNavigation } from '@/platform/chatgpt/navigation';
+import { revealQuestion, loadQuestionHistory, controlNativeNavigation } from '@/platform/chatgpt/navigation';
 import { parseConversation, parseConversationPage } from '@/platform/chatgpt/conversation';
 import { getConversationContextSnapshot } from '@/platform/chatgpt/page';
 import { installMessageStreamCapture } from '@/platform/chatgpt/stream';
@@ -9,7 +9,7 @@ export default defineContentScript({
   world: 'MAIN',
   runAt: 'document_start',
   main() {
-    installNavigationHandlers(revealQuestion, loadQuestionHistory, setHistoryPaginationObservation, controlNativeNavigation);
+    installNavigationHandlers(revealQuestion, loadQuestionHistory, controlNativeNavigation);
     const publisher = createHistoryPublisher();
     const messageStreamCapture = installMessageStreamCapture(publisher);
     const originalFetch = window.fetch;

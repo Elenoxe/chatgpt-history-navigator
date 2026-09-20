@@ -1,9 +1,10 @@
 {
   "timelineTitle": "历史导航",
+  "dismissNotification": "关闭提示",
   "previewSource": "来源",
   "previewImage": "图片附件",
   "previewTable": "表格",
   "previewResponse": "助手回复预览",
-  "timelineNavigationFailed": "ChatGPT 未能完成这条消息的加载或定位，请再次点击重试。",
+  "timelineNavigationFailed": "未能完成这条消息的加载或定位。",
   "timelineNonText": "图片、附件或其他非文本提问"
 }

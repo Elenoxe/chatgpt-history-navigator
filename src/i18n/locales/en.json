@@ -1,9 +1,10 @@
 {
   "timelineTitle": "History Navigator",
+  "dismissNotification": "Dismiss notification",
   "previewSource": "Source",
   "previewImage": "Image attachment",
   "previewTable": "Table",
   "previewResponse": "Assistant reply preview",
-  "timelineNavigationFailed": "ChatGPT couldn't finish loading or locating this message. Click to try again.",
+  "timelineNavigationFailed": "Unable to load or locate this message.",
   "timelineNonText": "Image, attachment, or other non-text message"
 }

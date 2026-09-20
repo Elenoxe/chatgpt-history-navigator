@@ -210,9 +210,6 @@ export default function Timeline() {
       <div id="timeline-preview-title" className="timeline-preview-title">
         <MessagePreview message={question.message} title />
       </div>
-      {timeline.navigationErrorId === question.id && <div role="alert" className="timeline-preview-body">
-        {t('timelineNavigationFailed')}
-      </div>}
       {question.responses.length > 0 && <ScrollFade label={t('previewResponse')}>
         <div className="timeline-preview-body">
           {question.responses.map(message => <div className="preview-message" key={message.id}>

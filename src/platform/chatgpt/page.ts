@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
-import { tryRevealQuestion, requestQuestionHistory, observeHistoryPagination, isNativeNavigationPending, cancelNativeNavigation } from './bridge';
+import { tryRevealQuestion, requestQuestionHistory, isNativeNavigationPending, cancelNativeNavigation } from './bridge';
 
 const pageChangeEvent = 'chatgpt-history-navigator:pagechange';
 
@@ -21,11 +21,11 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
   await new Promise<void>((resolve, reject) => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
-    let nativeTarget: Element | null = null;
+    let nativeAttempted = false;
     let nativeAccepted = false;
     let root: HTMLElement | null = null;
     let observedMain: HTMLElement | null = null;
-    let historyLoad: 'idle' | 'pending' | 'complete' | 'unavailable' = 'idle';
+    let historyLoad: 'idle' | 'pending' | 'complete' = 'idle';
     const historyController = new AbortController();
     const mutations = new MutationObserver(() => schedule(0));
     const resize = new ResizeObserver(() => schedule(0));
@@ -37,7 +37,6 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
       if (nativePending && root) {
         root.scrollTo({ top: root.scrollTop, left: root.scrollLeft, behavior: 'instant' });
       }
-      observeHistoryPagination(messageId, false);
       clearTimeout(timer);
       mutations.disconnect();
       resize.disconnect();
@@ -49,6 +48,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
     };
     const abort = () => { cleanup(); reject(signal.reason); };
     const cancel = () => { cleanup(); resolve(); };
+    const fail = (error: unknown) => { cleanup(); reject(error); };
     const onManualScroll = (event: Event) => {
       if (root && event.composedPath().includes(root)) cancel();
     };
@@ -57,6 +57,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
       if (root && event.composedPath().includes(root)) cancel();
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' && (!root || !event.composedPath().includes(root))) return;
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Escape', ' '].includes(event.key)) cancel();
     };
     function schedule(delay: number) {
@@ -64,23 +65,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
       clearTimeout(timer);
       timer = setTimeout(advance, delay);
     }
-    function finishOrLoadContext(main: HTMLElement, viewport: HTMLElement) {
-      const sentinel = main.querySelector<HTMLElement>('[data-testid="conversation-pagination-sentinel"]');
-      const boundary = sentinel?.getBoundingClientRect();
-      const visibleArea = viewport.getBoundingClientRect();
-      // Match the host pagination observer's `80px 0px 0px` rootMargin.
-      // A target at the loaded history boundary needs an older page as reading
-      // context. The native callback chooses num_turns and preserves scroll position.
-      if (sentinel && boundary && boundary.bottom >= visibleArea.top - 80 && boundary.top <= visibleArea.bottom) {
-        if (sentinel.querySelector('button')) {
-          cleanup();
-          reject(new Error('Native history pagination failed; retry loading earlier messages on the page'));
-          return;
-        }
-        observeHistoryPagination(messageId, true);
-        schedule(100);
-        return;
-      }
+    function finish(main: HTMLElement) {
       cleanup();
       const message = main.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
       if (message && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -113,20 +98,19 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
           historyLoad = 'pending';
           void requestQuestionHistory(messageId, historyController.signal).then(loaded => {
             if (stopped) return;
-            historyLoad = loaded ? 'complete' : 'unavailable';
+            if (!loaded) { fail(new Error('Native targeted history loading is unavailable')); return; }
+            historyLoad = 'complete';
             schedule(0);
           }).catch(error => {
             if (stopped) return;
-            cleanup();
-            reject(error);
+            fail(error);
           });
         }
         // Let the native targeted request finish without competing pagination
         // or jumping to the top while the reader is waiting.
         if (historyLoad === 'pending') { schedule(1000); return; }
-        const nativeAnchor = placeholder;
-        if (nativeAnchor && nativeAnchor !== nativeTarget) {
-          nativeTarget = nativeAnchor;
+        if (!nativeAttempted && (placeholder || historyLoad === 'complete')) {
+          nativeAttempted = true;
           // Also replace the native target when it was already mounted: an old
           // host navigation must not keep aligning an earlier question.
           nativeAccepted = tryRevealQuestion(messageId);
@@ -139,7 +123,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
           const bounds = message.getBoundingClientRect();
           const visibleArea = root.getBoundingClientRect();
           if (nativeAccepted && bounds.bottom > visibleArea.top && bounds.top < visibleArea.bottom) {
-            finishOrLoadContext(main, root);
+            finish(main);
             return;
           }
           const turn = message.closest<HTMLElement>('[data-turn-id]') ?? message;
@@ -149,7 +133,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
           // Instant scrolling is synchronous. Do not wait for rAF, which can be
           // suspended in hidden tabs even after the target has been positioned.
           if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
-            finishOrLoadContext(main, root);
+            finish(main);
             return;
           }
         } else if (placeholder) {
@@ -158,25 +142,10 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
           if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) {
             placeholder.scrollIntoView({ block: 'center', behavior: 'instant' });
           }
-        } else {
-          // Keep exposing the real pagination sentinel after each prepend.
-          // Observing DOM changes alone misses delayed loads and scroll anchoring.
-          const sentinel = main.querySelector<HTMLElement>('[data-testid="conversation-pagination-sentinel"]');
-          if (sentinel) {
-            // Keep it in the observer's viewport without repeatedly writing the
-            // same scroll position while the host is fetching a page.
-            const rect = sentinel.getBoundingClientRect();
-            const viewport = root.getBoundingClientRect();
-            if (rect.top < viewport.top || rect.bottom > viewport.bottom) {
-              root.scrollTo({ top: 0, behavior: 'instant' });
-            }
-            observeHistoryPagination(messageId, true);
-          }
-          else root.scrollTo({ top: Math.max(0, root.scrollTop - root.clientHeight), behavior: 'instant' });
         }
       }
       // DOM/size changes advance immediately. This check also discovers replaced
-      // containers and delayed mounts; it is not a deadline or a retry limit.
+      // containers and delayed mounts without paginating unrelated history.
       schedule(1000);
     }
     signal.addEventListener('abort', abort, { once: true });
