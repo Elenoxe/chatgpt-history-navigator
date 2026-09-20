@@ -32,14 +32,18 @@ type NativeHistoryLoader = (conversationId: string, options: {
 export async function loadQuestionHistory(messageId: string, signal: AbortSignal): Promise<boolean> {
   const pathname = location.pathname;
   const conversationId = pathname.match(/\/c\/([^/]+)\/?$/)?.[1];
-  // Reuse the module already loaded by the page. No bundled hash or minified
-  // export name is stable; identify the native loader by its option contract.
-  const moduleUrl = [...document.querySelectorAll<HTMLLinkElement>('link[href]')]
-    .map(link => new URL(link.href))
-    .find(url => url.origin === location.origin &&
-      /^\/cdn\/assets\/conversation-small-[\w-]+\.js$/.test(url.pathname));
-  if (!conversationId || !moduleUrl) return false;
-  const exports: Record<string, unknown> = await import(/* @vite-ignore */ moduleUrl.href);
+  // Preload links can disappear after SPA navigation. The route manifest keeps
+  // the current module URL even after its link and resource timing entry are gone.
+  const imports = (window as Window & {
+    __reactRouterManifest?: { routes?: Record<string, { imports?: unknown }> };
+  }).__reactRouterManifest?.routes?.['routes/_conversation']?.imports;
+  if (!conversationId || !Array.isArray(imports)) return false;
+  const modulePath = imports.find((path): path is string => typeof path === 'string' &&
+    /^\/cdn\/assets\/conversation-small-[\w-]+\.js$/.test(path));
+  if (!modulePath) return false;
+  // Only import a same-origin asset; identify its loader by the option contract,
+  // never by a bundled hash or minified export name.
+  const exports: Record<string, unknown> = await import(/* @vite-ignore */ new URL(modulePath, location.origin).href);
   signal.throwIfAborted();
   const loaders = Object.values(exports).filter((value): value is NativeHistoryLoader => {
     if (typeof value !== 'function') return false;
