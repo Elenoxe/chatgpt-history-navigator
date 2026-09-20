@@ -1,4 +1,4 @@
-@import 'tailwindcss' prefix(tw);
+@import "tailwindcss" prefix(tw);
 
 @theme {
   /* Pixel tokens keep the panel independent of the host page's rem size. */

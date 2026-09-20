@@ -29,5 +29,8 @@
   padding: 0 4px;
 }
 @media (max-width: 900px) {
-  .extension-toast-region { right: 16px; bottom: 180px; }
+  .extension-toast-region {
+    right: 16px;
+    bottom: 180px;
+  }
 }
