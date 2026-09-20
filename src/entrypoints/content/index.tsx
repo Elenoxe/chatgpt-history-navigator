@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createRoot } from "react-dom/client"
 import { I18nextProvider } from "react-i18next"
-import App from "./App"
 import { i18n, initI18n } from "@/i18n"
 import {
   getPageLanguage,
@@ -32,6 +31,9 @@ export default defineContentScript({
         ctx.onInvalidated(resolve)
       })
     }
+    if (ctx.isInvalid) return
+    // Sonner injects document-head styles when the UI module is evaluated.
+    const { default: App } = await import("./App")
     if (ctx.isInvalid) return
     const restoreNativeTimeline = hideNativeTimeline()
     ctx.onInvalidated(restoreNativeTimeline)

@@ -1,4 +1,6 @@
 @import "tailwindcss" prefix(tw);
+/* Sonner's document-head styles cannot reach the extension's shadow root. */
+@import "sonner/dist/styles.css";
 
 @theme {
   /* Pixel tokens keep the panel independent of the host page's rem size. */
@@ -20,4 +22,10 @@
     font-size: 14px;
     line-height: 1.5;
   }
+}
+
+.extension-toaster[data-sonner-toaster] {
+  --normal-bg: var(--tw-color-surface);
+  --normal-text: var(--tw-color-foreground);
+  --normal-border: var(--tw-color-outline);
 }

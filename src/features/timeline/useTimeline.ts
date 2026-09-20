@@ -9,11 +9,10 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { getTimelineQueryOptions } from "./query"
 import type { ConversationMessage } from "@/platform/chatgpt/conversation"
 import { messageText } from "./previewContent"
-import { useErrorToast } from "@/shared/Toast"
+import { toast } from "sonner"
 import { useTranslation } from "react-i18next"
 
 export function useTimeline() {
-  const showError = useErrorToast()
   const { t } = useTranslation()
   const snapshot = useSyncExternalStore(
     subscribeConversationContext,
@@ -45,7 +44,7 @@ export function useTimeline() {
     } catch (error) {
       if (controller.signal.aborted) return
       console.error("[chatgpt-history-navigator] Failed to locate question:", error)
-      showError(t("timelineNavigationFailed"))
+      toast.error(t("timelineNavigationFailed"))
     } finally {
       if (navigation.current === controller) {
         navigation.current = null

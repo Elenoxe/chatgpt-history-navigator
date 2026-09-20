@@ -9,6 +9,30 @@ import {
 
 const pageChangeEvent = "chatgpt-history-navigator:pagechange"
 
+export function observeComposerOffset(onChange: (bottom: number) => void): () => void {
+  let composer: HTMLFormElement | null = null
+  const resize = new ResizeObserver(update)
+  function update() {
+    const next = document.querySelector("#prompt-textarea")?.closest("form") ?? null
+    if (next !== composer) {
+      resize.disconnect()
+      composer = next
+      if (composer) resize.observe(composer)
+    }
+    const bounds = composer?.getBoundingClientRect()
+    onChange(bounds?.height ? Math.max(24, window.innerHeight - bounds.top + 16) : 24)
+  }
+  const mutations = new MutationObserver(update)
+  mutations.observe(document.body, { childList: true, subtree: true })
+  window.addEventListener("resize", update)
+  update()
+  return () => {
+    resize.disconnect()
+    mutations.disconnect()
+    window.removeEventListener("resize", update)
+  }
+}
+
 export function hideNativeTimeline(): () => void {
   const style = document.createElement("style")
   // Hide the native TOC's fixed wrapper, keeping its React navigation state intact.
