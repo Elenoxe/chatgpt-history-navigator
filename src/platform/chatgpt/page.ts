@@ -108,18 +108,8 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
       clearTimeout(timer)
       timer = setTimeout(advance, delay)
     }
-    function finish(main: HTMLElement) {
+    function finish() {
       cleanup()
-      const message = main.querySelector<HTMLElement>(`[data-message-id="${id}"]`)
-      if (message && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        message.animate(
-          [
-            { backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" },
-            { backgroundColor: "transparent" },
-          ],
-          { duration: 700, easing: "ease-out" },
-        )
-      }
       resolve()
     }
     function advance() {
@@ -192,7 +182,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
             bounds.bottom > visibleArea.top &&
             bounds.top < visibleArea.bottom
           ) {
-            finish(main)
+            finish()
             return
           }
           const turn = message.closest<HTMLElement>("[data-turn-id]") ?? message
@@ -202,7 +192,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
           // Instant scrolling is synchronous. Do not wait for rAF, which can be
           // suspended in hidden tabs even after the target has been positioned.
           if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
-            finish(main)
+            finish()
             return
           }
         } else if (placeholder) {
