@@ -12,6 +12,9 @@ const noncharacters = new RegExp(
 )
 
 export default defineConfig({
+  webExt: {
+    disabled: true,
+  },
   srcDir: "src",
   modules: ["@wxt-dev/module-react"],
   vite: () => ({
