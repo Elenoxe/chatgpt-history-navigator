@@ -1,0 +1,7 @@
+.output
+.wxt
+stats.html
+stats-*.json
+pnpm-lock.yaml
+.agents
+.codex
