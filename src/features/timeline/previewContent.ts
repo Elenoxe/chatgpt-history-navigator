@@ -8,17 +8,37 @@ export type PreviewReferenceData = {
   files?: { target: PreviewFileTarget; name: string }[]
   excerpts?: string[]
   citationUuid?: string
+  referenceType?: string
   messageId?: string
   inline?: boolean
 }
 
+export type PreviewMedia = {
+  src?: string
+  fileId?: string
+  name: string
+  mimeType?: string
+  image: boolean
+}
+
+export type PreviewPartFallback = {
+  label: string
+}
+
+function isSameReference(left: PreviewReferenceData, right: PreviewReferenceData) {
+  return left.citationUuid && right.citationUuid
+    ? left.citationUuid === right.citationUuid
+    : left.label === right.label &&
+        left.referenceType === right.referenceType &&
+        left.links[0]?.href === right.links[0]?.href
+}
+
 export function messageText(message: ConversationMessage) {
-  if (!["text", "multimodal_text"].includes(message.content.content_type)) return ""
-  return Array.isArray(message.content.parts)
-    ? message.content.parts.filter((part): part is string => typeof part === "string").join("\n")
-    : typeof message.content.text === "string"
-      ? message.content.text
-      : ""
+  if (Array.isArray(message.content.parts)) {
+    const parts = message.content.parts.map(partTextValue).filter(Boolean).join("\n")
+    if (parts) return parts
+  }
+  return text(message.content.text)
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -33,6 +53,85 @@ function records(value: unknown) {
 
 function text(value: unknown) {
   return typeof value === "string" ? value : ""
+}
+
+function partType(part: Record<string, unknown>) {
+  return text(part.content_type) || text(part.type)
+}
+
+function partTextValue(part: unknown) {
+  if (typeof part === "string") return part
+  const value = record(part)
+  const kind = partType(value)
+  return (
+    text(value.text) ||
+    (["text", "multimodal_text", "transcription", "audio_transcription"].includes(kind)
+      ? text(value.content)
+      : "")
+  )
+}
+
+function partAssetPointer(part: Record<string, unknown>) {
+  return (
+    text(part.asset_pointer) ||
+    text(part.assetPointer) ||
+    text(part.file_id) ||
+    text(part.fileId) ||
+    text(part.url) ||
+    text(part.src)
+  )
+}
+
+function resolvePartAsset(pointer: string) {
+  if (/^https:\/\//i.test(pointer)) return { src: pointer }
+  if (/^file-service:\/\//i.test(pointer))
+    return { fileId: pointer.slice("file-service://".length) }
+  if (/^file-[^/#?]+$/i.test(pointer)) return { fileId: pointer }
+}
+
+function partMedia(part: unknown, imageLabel: string): PreviewMedia | undefined {
+  const value = record(part)
+  const kind = partType(value).toLowerCase()
+  const mimeType = text(value.mime_type) || text(value.mimeType) || undefined
+  const isImage = kind.includes("image") || !!mimeType?.toLowerCase().startsWith("image/")
+  const isAudio = kind.includes("audio") || !!mimeType?.toLowerCase().startsWith("audio/")
+  const isVideo = kind.includes("video") || !!mimeType?.toLowerCase().startsWith("video/")
+  const isFile =
+    kind === "file" ||
+    kind.includes("file_") ||
+    kind.includes("attachment") ||
+    kind.includes("document")
+  if (!isImage && !isAudio && !isVideo && !isFile) return
+  const pointer = partAssetPointer(value)
+  const asset = pointer ? resolvePartAsset(pointer) : undefined
+  const name =
+    text(value.name) ||
+    text(value.filename) ||
+    text(value.alt) ||
+    (isImage ? imageLabel : mimeType || partType(value) || "attachment")
+  return { ...asset, name, mimeType, image: isImage }
+}
+
+function getPartPreview(message: ConversationMessage, imageLabel: string) {
+  const media: PreviewMedia[] = []
+  const partFallbacks: PreviewPartFallback[] = []
+  for (const part of Array.isArray(message.content.parts) ? message.content.parts : []) {
+    if (typeof part === "string") continue
+    const value = record(part)
+    const kind = partType(value)
+    if (!kind) continue
+    const asset = partMedia(part, imageLabel)
+    if (asset) {
+      media.push(asset)
+      continue
+    }
+    if (partTextValue(part)) continue
+    if (["text", "multimodal_text", "transcription", "audio_transcription"].includes(kind)) continue
+    const label =
+      text(value.name) || text(value.filename) || text(value.title) || kind.replace(/[_-]+/g, " ")
+    if (!partFallbacks.some((item) => item.label === label)) partFallbacks.push({ label })
+  }
+  return { media, partFallbacks }
 }
 
 export function getWritingReferences(
@@ -79,11 +178,15 @@ export function parsePreviewReference(
     [
       ...new Set(
         items
-          .map((item) => text(item.title) || text(item.filename) || text(item.name))
+          .map(
+            (item) => text(item.title) || text(item.filename) || text(item.name) || text(item.alt),
+          )
           .filter(Boolean),
       ),
     ].join(" · ") ||
     text(reference.alt) ||
+    text(reference.type) ||
+    text(reference.content_reference_type) ||
     sourceLabel
   const links = items
     .flatMap((item) => {
@@ -155,6 +258,7 @@ export function parsePreviewReference(
     files,
     excerpts: [...new Set(excerpts)],
     citationUuid: text(reference.citation_uuid) || undefined,
+    referenceType: text(reference.type) || text(reference.content_reference_type) || undefined,
   }
 }
 
@@ -270,6 +374,10 @@ export function getPreviewContent(
     references.push({ label, kind, links })
     return true
   }
+  const addStandaloneReference = (reference: Reference) => {
+    if (references.some((item) => isSameReference(item, reference))) return
+    references.push({ ...reference, messageId: message.id, inline: false })
+  }
   const serialization = record(message.metadata.serialization_metadata)
   for (const symbol of records(serialization.custom_symbol_offsets)) {
     const start = symbol.startIndex
@@ -295,14 +403,14 @@ export function getPreviewContent(
     )
     if (addReference(reference.start_idx, reference.end_idx, parsed.label, "source")) {
       references[references.length - 1] = { ...parsed, messageId: message.id, inline: true }
+    } else {
+      addStandaloneReference(parsed)
     }
   }
   for (const metadata of records(message.metadata.conversation_context_citation_metadata)) {
     const reference = { ...metadata, ...record(metadata.citation) }
     const parsed = parsePreviewReference(reference, sourceLabel)
-    if (parsed.citationUuid && references.some((item) => item.citationUuid === parsed.citationUuid))
-      continue
-    references.push({ ...parsed, messageId: message.id, inline: false })
+    addStandaloneReference(parsed)
   }
   let markdown = ""
   let cursor = 0
@@ -313,20 +421,12 @@ export function getPreviewContent(
   }
   markdown += source.slice(cursor)
 
-  const images = records(message.content.parts)
-    .filter((part) => part.content_type === "image_asset_pointer")
-    .map((part) => ({
-      // Asset pointers require a separate authenticated resolution API; never use them as image URLs.
-      src: /^https:\/\//i.test(text(part.asset_pointer)) ? text(part.asset_pointer) : undefined,
-      fileId: /^file-service:\/\//.test(text(part.asset_pointer))
-        ? text(part.asset_pointer).slice("file-service://".length)
-        : undefined,
-      alt: imageLabel,
-    }))
+  const { media, partFallbacks } = getPartPreview(message, imageLabel)
   return {
     markdown: normalizeMath(markdown),
     references,
     attachments,
-    images,
+    media,
+    partFallbacks,
   }
 }

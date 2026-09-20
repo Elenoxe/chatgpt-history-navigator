@@ -333,22 +333,35 @@ export function MessagePreview({
             .map((reference, index) => (
               <PreviewReference key={reference.citationUuid ?? index} {...reference} />
             ))}
-          {preview.images.map((image, index) =>
-            image.src ? (
-              <PreviewFile key={image.src} src={image.src} name={image.alt} image />
-            ) : image.fileId ? (
+          {preview.media.map((media, index) =>
+            media.src ? (
               <PreviewFile
-                key={image.fileId}
-                target={{ fileId: image.fileId }}
-                name={image.alt}
-                image
+                key={media.src}
+                src={media.src}
+                name={media.name}
+                mimeType={media.mimeType}
+                image={media.image}
+              />
+            ) : media.fileId ? (
+              <PreviewFile
+                key={media.fileId}
+                target={{ fileId: media.fileId }}
+                name={media.name}
+                mimeType={media.mimeType}
+                image={media.image}
               />
             ) : (
               <span key={index} className="preview-attachment">
-                {image.alt}
+                {media.name}
+                {media.mimeType && <small> · {media.mimeType}</small>}
               </span>
             ),
           )}
+          {preview.partFallbacks.map((part) => (
+            <span key={part.label} className="preview-attachment">
+              {part.label}
+            </span>
+          ))}
           {preview.attachments.map((attachment, index) =>
             !attachment.id && attachment.mountedLibraryId && !attachment.href ? (
               <PreviewFile
