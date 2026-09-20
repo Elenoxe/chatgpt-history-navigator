@@ -14,6 +14,7 @@ import {
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { subscribeHistoryCaptureEvents } from '@/platform/chatgpt/bridge';
 import { getConversationContextSnapshot, subscribeConversationContext } from '@/platform/chatgpt/page';
+import { applyWritingFileUpdates, mergeWritingBlocks, type WritingBlocks } from '@/platform/chatgpt/writing';
 
 // Query objects own their ordering metadata; removal/GC also releases this state.
 const historyLoadStates = new WeakMap<object, {
@@ -22,15 +23,30 @@ const historyLoadStates = new WeakMap<object, {
   streamStartedAt: number;
   streamMessageIds: Set<string>;
   streamBranchParentId?: string;
+  writingPatches: Map<string, { observedAt: number; blocks: WritingBlocks }>;
 }>();
 function getHistoryLoadState(client: QueryClient, queryKey: readonly unknown[]) {
   const query = client.getQueryCache().build(client, { queryKey });
   let load = historyLoadStates.get(query);
   if (!load) {
-    load = { acceptedSnapshotStartedAt: 0, activeLoadStartedAt: 0, streamStartedAt: 0, streamMessageIds: new Set() };
+    load = { acceptedSnapshotStartedAt: 0, activeLoadStartedAt: 0, streamStartedAt: 0, streamMessageIds: new Set(), writingPatches: new Map() };
     historyLoadStates.set(query, load);
   }
   return load;
+}
+
+function applyWritingUpdates(history: ConversationHistory, load: ReturnType<typeof getHistoryLoadState>, snapshotStartedAt = 0) {
+  const messages = history.messages.map(message => {
+    const patch = load.writingPatches.get(message.id);
+    if (!patch) return message;
+    if (snapshotStartedAt > patch.observedAt && message.metadata.writing_blocks) {
+      load.writingPatches.delete(message.id);
+      return message;
+    }
+    return { ...message, metadata: { ...message.metadata,
+      writing_blocks: mergeWritingBlocks(message.metadata.writing_blocks, patch.blocks) } };
+  });
+  return applyWritingFileUpdates({ ...history, messages });
 }
 
 export function startCapturedHistorySync(client: QueryClient) {
@@ -68,6 +84,37 @@ export function startCapturedHistorySync(client: QueryClient) {
   const unsubscribeCapture = subscribeHistoryCaptureEvents((capture) => {
     updateContext();
     const [userId, conversationId] = JSON.parse(contextSnapshot) as [string | null, string | null];
+    if (capture.result.kind === 'writing-file') {
+      if (capture.userId !== userId) return;
+      const revision = capture.result;
+      const key = ['preview', userId, 'writing-revision', revision.libraryId];
+      client.setQueryData<typeof revision>(key, previous => previous && previous.version > revision.version ? previous : revision);
+      void client.invalidateQueries({ queryKey: ['preview', userId, 'file'] });
+      return;
+    }
+    if (capture.result.kind === 'files-changed') {
+      if (capture.userId !== userId) return;
+      // Keep the version watermark, but release the saved-body override so observers can refetch.
+      client.setQueriesData<{ fileId: string; version: number; content?: string }>({
+        queryKey: ['preview', userId, 'writing-revision'],
+      }, previous => previous && ({ ...previous, content: undefined }));
+      // Saved document content lives independently of conversation snapshots.
+      void client.cancelQueries({ queryKey: ['preview', userId] }).then(() =>
+        client.invalidateQueries({ queryKey: ['preview', userId] }));
+      return;
+    }
+    if (capture.result.kind === 'writing') {
+      if (capture.userId !== userId) return;
+      const queryKey = ['timeline', userId, capture.conversationId] as const;
+      const load = getHistoryLoadState(client, queryKey);
+      if (capture.requestStartedAt < load.streamStartedAt ||
+          (capture.requestStartedAt !== load.streamStartedAt && capture.requestStartedAt < load.acceptedSnapshotStartedAt)) return;
+      const { messageId, blocks } = capture.result;
+      load.writingPatches.set(messageId, { observedAt: performance.timeOrigin + performance.now(),
+        blocks: mergeWritingBlocks(load.writingPatches.get(messageId)?.blocks, blocks) });
+      client.setQueryData<ConversationHistory>(queryKey, current => current && applyWritingUpdates(current, load));
+      return;
+    }
     if (capture.result.kind === 'messages') {
       // Streams remain associated with their request even after SPA navigation.
       if (capture.userId !== userId) return;
@@ -86,8 +133,8 @@ export function startCapturedHistorySync(client: QueryClient) {
       const { messages, nodes, phase, branchParentId } = capture.result;
       for (const node of nodes) if (node.messageId) load.streamMessageIds.add(node.messageId);
       for (const message of messages) load.streamMessageIds.add(message.id);
-      client.setQueryData<ConversationHistory>(queryKey, current => mergeStreamMessages(
-        current, capture.conversationId, messages, nodes, phase === 'streaming', branchParentId));
+      client.setQueryData<ConversationHistory>(queryKey, current => applyWritingUpdates(mergeStreamMessages(
+        current, capture.conversationId, messages, nodes, phase === 'streaming', branchParentId), load));
       const history = client.getQueryData<ConversationHistory>(queryKey);
       if (phase === 'interrupted' || (phase === 'complete' && !history?.isHistoryComplete)) {
         void client.invalidateQueries({ queryKey, exact: true });
@@ -142,7 +189,7 @@ export function startCapturedHistorySync(client: QueryClient) {
       void client.cancelQueries({ queryKey, exact: true });
     }
     if (history.isHistoryComplete || !state?.data?.isHistoryComplete) {
-      client.setQueryData(queryKey, history);
+      client.setQueryData(queryKey, applyWritingUpdates(history, load, snapshotStartedAt));
     }
     if (history.isHistoryComplete) clearPages();
     else if (supersedesActiveLoad || state?.fetchStatus !== 'fetching') {
@@ -191,12 +238,12 @@ export function getTimelineQueryOptions(
         return client.setQueryData<ConversationHistory>(queryKey, (current) => {
           if (current?.isHistoryComplete && !history.isHistoryComplete) return current;
           if (current && (startedDuringGeneration || current.isGenerating)) {
-            return mergeStreamMessages(history, conversationId,
+            return applyWritingUpdates(mergeStreamMessages(history, conversationId,
               current.messages.filter(message => load.streamMessageIds.has(message.id)),
               current.nodes.filter(node => node.messageId !== null && load.streamMessageIds.has(node.messageId)),
-              current.isGenerating === true, load.streamBranchParentId);
+              current.isGenerating === true, load.streamBranchParentId), load, requestStartedAt);
           }
-          return history;
+          return applyWritingUpdates(history, load, requestStartedAt);
         })!;
       };
       try {

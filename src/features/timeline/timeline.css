@@ -311,6 +311,8 @@
 .preview-message:empty { display: none; }
 .preview-message:not(:empty) ~ .preview-message:not(:empty) { margin-top: 12px; }
 .preview-message { display: flow-root; }
+.timeline-preview a:hover { text-decoration: underline; }
+.timeline-preview a:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
 .timeline-preview-body .preview-message > :not(:first-child) { margin-top: 6px; }
 .preview-code-block { overflow: hidden; border-radius: 8px; background: var(--timeline-preview-code-background); }
 .preview-code-language { padding: 6px 10px 0; color: var(--timeline-preview-muted-color); font-size: 12px; line-height: 18px; }
@@ -323,8 +325,30 @@
   font-size: 0.9em;
 }
 .preview-source { vertical-align: baseline; }
+.preview-source button { cursor: pointer; }
+.preview-source-details { display: block; padding: 8px; margin: 6px 0; border: 1px solid var(--timeline-preview-border-color); border-radius: 8px; }
+.preview-source-details a { display: block; padding: 4px 0; }
+.preview-source-details small { display: block; overflow-wrap: anywhere; }
+.preview-reference-excerpt { display: block; white-space: pre-wrap; margin-top: 6px; }
+.preview-attachment button { cursor: pointer; }
+.preview-attachment button:disabled { cursor: wait; opacity: 0.6; }
+.preview-attachment :is(audio, video) { display: block; max-width: 100%; max-height: 220px; }
 .preview-attachment { display: inline-block; margin: 2px; }
-.preview-writing { padding-left: 8px; border-left: 2px solid var(--timeline-preview-border-color); }
+.timeline-preview blockquote > :not(:first-child) { margin-top: 10px; }
+.preview-writing {
+  padding: 14px 16px;
+  border: 1px solid var(--timeline-preview-border-color);
+  border-radius: 12px;
+  color: inherit;
+  background: var(--timeline-preview-code-background);
+}
+.preview-writing > :not(:first-child) { margin-top: 10px; }
+.preview-writing-title {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: inherit;
+  color: light-dark(#929292, #777777);
+}
 .preview-link { text-decoration: underline; text-decoration-color: var(--timeline-preview-border-color); }
 .timeline-preview .katex { font-size: 1em; }
 .timeline-preview .katex-display { overflow-x: auto; scrollbar-width: none; }

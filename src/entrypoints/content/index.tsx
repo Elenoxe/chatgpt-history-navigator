@@ -34,7 +34,11 @@ export default defineContentScript({
     const stopObservingConversationContext = startConversationContextObserver(ctx, (userChanged) => {
       // Query's manual page updates also update its cancellation restore point.
       void queryClient.cancelQueries({ queryKey: ['timeline'] });
-      if (userChanged) queryClient.removeQueries({ queryKey: ['timeline'] });
+      if (userChanged) {
+        queryClient.removeQueries({ queryKey: ['timeline'] });
+        void queryClient.cancelQueries({ queryKey: ['preview'] });
+        queryClient.removeQueries({ queryKey: ['preview'] });
+      }
     });
     ctx.onInvalidated(stopObservingConversationContext);
 

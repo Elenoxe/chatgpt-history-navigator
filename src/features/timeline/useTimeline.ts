@@ -11,6 +11,10 @@ export function useTimeline() {
     string | null,
     string | null,
   ];
+  const previewContext = useMemo(() => ({ userId, conversationId,
+    projectId: location.pathname.match(/^\/g\/(g-p-[^/]+)/)?.[1],
+    sharedId: location.pathname.match(/^\/share\/([^/]+)/)?.[1],
+  }), [snapshot]);
   const navigation = useRef<AbortController | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<{ snapshot: string; id: string } | null>(null);
   const [navigationError, setNavigationError] = useState<{ snapshot: string; id: string } | null>(null);
@@ -71,6 +75,7 @@ export function useTimeline() {
     return observeVisibleQuestions(targets, ids => setReading({ snapshot, ids }));
   }, [snapshot, readingTargets]);
   return {
+    previewContext,
     conversationId,
     identityAvailable: userId !== null,
     questions,

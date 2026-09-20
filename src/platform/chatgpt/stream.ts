@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { writingBlocksSchema } from './writing';
 import { parseApiResponse, parseStreamMessage, ConversationDataError, type ConversationMessage, type BranchNode } from './conversation';
 import type { createHistoryPublisher } from './bridge';
 import { getConversationContextSnapshot } from './page';
@@ -69,7 +70,7 @@ export function createMessageStreamParser(onMessage: (value: unknown) => void, o
         if (typeof value.p === 'string') path = value.p;
         const root = apply(values.get(channel), operation, path, value.v);
         values.set(channel, root);
-        if (object(root) && root.message) { onControl(root); onMessage(root.message); }
+        if (object(root)) { onControl(root); if (root.message) onMessage(root.message); }
       } else if (value.type === 'input_message') onMessage(value.input_message);
       else if (value.message) { onControl(value); onMessage(value.message); }
       else onControl(value);
@@ -118,7 +119,9 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
     const addMessage = (value: unknown) => {
       if (finished) return;
       const parsed = parseStreamMessage(value);
-      for (const message of parsed.messages) messages.set(message.id, message);
+      for (const message of parsed.messages) {
+        messages.set(message.id, message);
+      }
       nodes.set(parsed.node.messageId!, parsed.node);
       if (!timer) timer = setTimeout(() => emit('streaming'), 50);
     };
@@ -133,6 +136,13 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
     };
     const feed = createMessageStreamParser(addMessage, control => {
       if (typeof control.conversation_id === 'string') bind(parseApiResponse(z.uuid(), control.conversation_id));
+      if (control.type === 'writing_blocks_metadata_patch' && conversationId) {
+        const patch = parseApiResponse(z.object({ message_id: z.string().min(1),
+          writing_blocks: writingBlocksSchema }), control);
+        emit('streaming');
+        publisher.publish({ userId, conversationId, requestStartedAt,
+          result: { kind: 'writing', messageId: patch.message_id, blocks: patch.writing_blocks } });
+      }
       if (control.type === 'stream_handoff') {
         handedOff = true;
         if (Array.isArray(control.options)) for (const option of control.options) {

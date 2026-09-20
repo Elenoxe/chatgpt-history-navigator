@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTimeline } from './useTimeline';
 import { MessagePreview } from './MessagePreview';
+import { PreviewContext } from './PreviewContext';
 import { ScrollFade } from './ScrollFade';
 import './timeline.css';
 
@@ -150,8 +151,8 @@ export default function Timeline() {
     const containWheel = (event: WheelEvent) => {
       if (event.ctrlKey) return; // Preserve browser zoom gestures.
       const target = event.target instanceof Element ? event.target : null;
-      const scroller = target?.closest<HTMLElement>('.preview-scroll');
       const horizontal = event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      const scroller = target?.closest<HTMLElement>(horizontal ? '.preview-scroll, .katex-display' : '.preview-scroll');
       const delta = horizontal ? event.deltaX || event.deltaY : event.deltaY;
       const container = horizontal ? scroller : scroller?.closest('.preview-scroll-horizontal')
         ?.parentElement?.closest<HTMLElement>('.preview-scroll') ?? scroller;
@@ -215,7 +216,9 @@ export default function Timeline() {
       {question.responses.length > 0 && <ScrollFade label={t('previewResponse')}>
         <div className="timeline-preview-body">
           {question.responses.map(message => <div className="preview-message" key={message.id}>
-            <MessagePreview message={message} />
+                <PreviewContext.Provider value={timeline.previewContext}>
+                  <MessagePreview message={message} conversationId={timeline.conversationId} />
+                </PreviewContext.Provider>
           </div>)}
         </div>
       </ScrollFade>}

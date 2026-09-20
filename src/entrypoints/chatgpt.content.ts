@@ -16,7 +16,7 @@ export default defineContentScript({
     window.fetch = function (input, init) {
       // Request bodies must be cloned before native fetch consumes them.
       let captureInput = input;
-      if (input instanceof Request && (init?.method ?? input.method).toUpperCase() === 'POST' && !init?.body) {
+      if (input instanceof Request && ['POST', 'PUT', 'PATCH'].includes((init?.method ?? input.method).toUpperCase()) && !init?.body) {
         try { captureInput = input.clone(); }
         catch { console.warn('[chatgpt-history-navigator] Unable to clone submitted request'); }
       }
@@ -26,6 +26,29 @@ export default defineContentScript({
       try {
         const url = new URL(input instanceof Request ? input.url : String(input), location.href);
         const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+        if (url.origin === location.origin && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase()) &&
+            /^\/backend-api\/files\/library\/(?:shared\/)?files(?:\/|$)/.test(url.pathname) && !url.pathname.endsWith('/opened')) {
+          const [userId, conversationId] = JSON.parse(getConversationContextSnapshot());
+          if (userId && conversationId) {
+            const requestStartedAt = performance.timeOrigin + performance.now();
+            const submitted = typeof init?.body === 'string' ? Promise.resolve(init.body)
+              : captureInput instanceof Request ? captureInput.text() : Promise.resolve('');
+            void Promise.all([responsePromise, submitted]).then(async ([response, body]) => {
+              if (!response.ok || publisher.isStopped()) return;
+              if (method.toUpperCase() === 'PATCH' && /^\/backend-api\/files\/library\/files\/[^/]+$/.test(url.pathname)) {
+                const data = await response.clone().json();
+                const request = body ? JSON.parse(body) : {};
+                if (typeof data.id === 'string' && typeof data.file_id === 'string' && Number.isSafeInteger(data.current_version_number)) {
+                  publisher.publish({ userId, conversationId, requestStartedAt, result: { kind: 'writing-file',
+                    libraryId: data.id, fileId: data.file_id, version: data.current_version_number,
+                    ...(typeof request.inline_content === 'string' ? { content: request.inline_content } : {}) } });
+                  return;
+                }
+              }
+              publisher.publish({ userId, conversationId, requestStartedAt, result: { kind: 'files-changed' } });
+            }).catch(error => console.warn('[chatgpt-history-navigator] Unable to capture library update:', error));
+          }
+        }
         if (url.origin === location.origin && method.toUpperCase() === 'POST' &&
             /^\/backend-api\/(?:f\/)?conversation$/.test(url.pathname)) {
           const [userId] = JSON.parse(getConversationContextSnapshot());

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { writingBlocksSchema } from './writing';
 import {
   conversationHistorySchema,
   conversationPageSchema,
@@ -136,6 +137,10 @@ const historyCaptureEventSchema = z.object({
   conversationId: z.uuid(),
   requestStartedAt: z.number().finite().nonnegative(),
   result: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal('writing'), messageId: z.string().min(1), blocks: writingBlocksSchema }),
+    z.object({ kind: z.literal('files-changed') }),
+    z.object({ kind: z.literal('writing-file'), libraryId: z.string().min(1), fileId: z.string().min(1),
+      version: z.number().int().nonnegative(), content: z.string().optional() }),
     z.object({ kind: z.literal('messages'), messages: z.array(conversationMessageSchema),
       nodes: z.array(branchNodeSchema), branchParentId: z.string().optional(),
       phase: z.enum(['streaming', 'complete', 'interrupted']) }),

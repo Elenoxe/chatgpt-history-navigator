@@ -21,7 +21,7 @@ type ApiMessage = z.infer<typeof messageSchema>;
 
 export const conversationMessageSchema = z.object({
   id: idSchema,
-  role: z.enum(['user', 'assistant']),
+  role: z.enum(['user', 'assistant', 'tool']),
   recipient: z.string().nullable(),
   content: messageSchema.shape.content,
   metadata: messageSchema.shape.metadata,
@@ -75,7 +75,7 @@ export function parseApiResponse<T>(schema: z.ZodType<T>, value: unknown): T {
 
 function normalizeDisplayMessage(message: ApiMessage): ConversationMessage[] {
   const role = message.author.role;
-  if (role !== 'user' && role !== 'assistant') return [];
+  if (role !== 'user' && role !== 'assistant' && role !== 'tool') return [];
   return [{
     id: message.id,
     role,
@@ -87,7 +87,7 @@ function normalizeDisplayMessage(message: ApiMessage): ConversationMessage[] {
     status: message.status ?? null,
     endTurn: message.end_turn ?? null,
     channel: message.channel ?? null,
-    hidden: message.metadata.is_visually_hidden_from_conversation === true,
+    hidden: role === 'tool' || message.metadata.is_visually_hidden_from_conversation === true,
   }];
 }
 
