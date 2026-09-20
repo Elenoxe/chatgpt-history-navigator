@@ -21,8 +21,8 @@ export default function App() {
         mobileOffset={{ bottom: toastBottom, left: 16, right: 16 }}
         duration={4000}
         closeButton
-        containerAriaLabel={t("notifications")}
-        toastOptions={{ closeButtonAriaLabel: t("dismissNotification") }}
+        containerAriaLabel={t("notifications.label")}
+        toastOptions={{ closeButtonAriaLabel: t("notifications.dismiss") }}
       />
     </>
   )

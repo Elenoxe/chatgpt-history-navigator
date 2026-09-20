@@ -209,11 +209,21 @@ const components: Components = {
     const { title, conversationId, message, t } = useContext(MarkdownContext)!
     const target = fileTarget(src, title, conversationId, message)
     return target ? (
-      <PreviewFile key={src} target={target} name={alt || t("previewImage")} image />
+      <PreviewFile
+        key={src}
+        target={target}
+        name={alt || t("timeline.preview.imageFallbackLabel")}
+        image
+      />
     ) : title || !src ? (
       <span>{alt}</span>
     ) : (
-      <PreviewFile key={src} src={src} name={alt || t("previewImage")} image />
+      <PreviewFile
+        key={src}
+        src={src}
+        name={alt || t("timeline.preview.imageFallbackLabel")}
+        image
+      />
     )
   },
   span: ({ node, children, ...props }) => {
@@ -246,7 +256,7 @@ const components: Components = {
     return title ? (
       <table>{children}</table>
     ) : (
-      <ScrollFade horizontal label={t("previewTable")}>
+      <ScrollFade horizontal label={t("timeline.preview.tableRegionLabel")}>
         <table>{children}</table>
       </ScrollFade>
     )
@@ -282,7 +292,12 @@ export function MessagePreview({
 }) {
   const { t } = useTranslation()
   const preview = useMemo(
-    () => getPreviewContent(message, t("previewSource"), t("previewImage")),
+    () =>
+      getPreviewContent(
+        message,
+        t("timeline.preview.sourceFallbackLabel"),
+        t("timeline.preview.imageFallbackLabel"),
+      ),
     [message, t],
   )
   const remarkPlugins: Options["remarkPlugins"] = [
@@ -307,7 +322,8 @@ export function MessagePreview({
       >
         {preview.markdown ||
           (title
-            ? preview.attachments.map((item) => item.name).join(", ") || t("timelineNonText")
+            ? preview.attachments.map((item) => item.name).join(", ") ||
+              t("timeline.nonTextMessage")
             : "")}
       </Markdown>
       {!title && (

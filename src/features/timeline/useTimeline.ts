@@ -44,7 +44,7 @@ export function useTimeline() {
     } catch (error) {
       if (controller.signal.aborted) return
       console.error("[chatgpt-history-navigator] Failed to locate question:", error)
-      toast.error(t("timelineNavigationFailed"))
+      toast.error(t("timeline.errors.navigationFailed"))
     } finally {
       if (navigation.current === controller) {
         navigation.current = null

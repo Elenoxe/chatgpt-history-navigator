@@ -235,7 +235,7 @@ export default function Timeline() {
       <aside
         key={timeline.conversationId}
         className="timeline"
-        aria-label={t("timelineTitle")}
+        aria-label={t("timeline.label")}
         lang={i18n.language}
         onPointerEnter={keepPreview}
         onPointerLeave={scheduleClose}
@@ -270,7 +270,7 @@ export default function Timeline() {
               data-preview={question?.id === item.id || undefined}
               data-pending={timeline.pendingQuestionId === item.id || undefined}
               aria-current={timeline.visibleQuestionIds.has(item.id) ? "true" : undefined}
-              aria-label={`${index + 1}. ${item.text || t("timelineNonText")}`}
+              aria-label={`${index + 1}. ${item.text || t("timeline.nonTextMessage")}`}
               aria-describedby={question?.id === item.id ? "timeline-preview" : undefined}
               onPointerEnter={(event) => showPreview(item.id, event.currentTarget)}
               onFocus={(event) => showPreview(item.id, event.currentTarget)}
@@ -309,7 +309,7 @@ export default function Timeline() {
             <MessagePreview message={question.message} title />
           </div>
           {question.responses.length > 0 && (
-            <ScrollFade label={t("previewResponse")}>
+            <ScrollFade label={t("timeline.preview.responsesRegionLabel")}>
               <div className="timeline-preview-body">
                 {question.responses.map((message) => (
                   <div className="preview-message" key={message.id}>

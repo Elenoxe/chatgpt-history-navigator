@@ -1,11 +1,19 @@
 {
-  "timelineTitle": "历史导航",
-  "notifications": "通知",
-  "dismissNotification": "关闭提示",
-  "previewSource": "来源",
-  "previewImage": "图片附件",
-  "previewTable": "表格",
-  "previewResponse": "助手回复预览",
-  "timelineNavigationFailed": "未能完成这条消息的加载或定位。",
-  "timelineNonText": "图片、附件或其他非文本提问"
+  "notifications": {
+    "label": "通知",
+    "dismiss": "关闭通知"
+  },
+  "timeline": {
+    "label": "对话历史",
+    "nonTextMessage": "非文本消息（图片或附件）",
+    "preview": {
+      "responsesRegionLabel": "助手回复",
+      "tableRegionLabel": "表格",
+      "sourceFallbackLabel": "来源",
+      "imageFallbackLabel": "图片附件"
+    },
+    "errors": {
+      "navigationFailed": "无法加载或定位此消息。"
+    }
+  }
 }

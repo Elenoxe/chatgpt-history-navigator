@@ -1,11 +1,19 @@
 {
-  "timelineTitle": "History Navigator",
-  "notifications": "Notifications",
-  "dismissNotification": "Dismiss notification",
-  "previewSource": "Source",
-  "previewImage": "Image attachment",
-  "previewTable": "Table",
-  "previewResponse": "Assistant reply preview",
-  "timelineNavigationFailed": "Unable to load or locate this message.",
-  "timelineNonText": "Image, attachment, or other non-text message"
+  "notifications": {
+    "label": "Notifications",
+    "dismiss": "Dismiss notification"
+  },
+  "timeline": {
+    "label": "Conversation history",
+    "nonTextMessage": "Non-text message (image or attachment)",
+    "preview": {
+      "responsesRegionLabel": "Assistant responses",
+      "tableRegionLabel": "Table",
+      "sourceFallbackLabel": "Source",
+      "imageFallbackLabel": "Image attachment"
+    },
+    "errors": {
+      "navigationFailed": "Couldn't load or locate this message."
+    }
+  }
 }
