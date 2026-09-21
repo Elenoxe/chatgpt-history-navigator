@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify version
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+
+          echo "package.json version: $VERSION"
+          echo "Git tag version:      $TAG_VERSION"
+
+          if [ "$VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::package.json version ($VERSION) does not match tag ($GITHUB_REF_NAME)"
+            exit 1
+          fi
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type check
+        run: pnpm compile
+
+      - name: Create release archives
+        run: |
+          pnpm zip
+          pnpm zip:firefox
+
+      - name: List release archives
+        run: ls -lh .output/*.zip
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            .output/*-chrome.zip \
+            .output/*-firefox.zip \
+            .output/*-sources.zip \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
