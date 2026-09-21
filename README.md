@@ -52,3 +52,11 @@ The page-side script also observes conversation updates. New messages, edits, an
 ### Message navigation
 
 When a timeline item is selected, the extension first uses ChatGPT's own navigation. If the target is not in the DOM, it asks ChatGPT's targeted history loader to fetch it, observes pagination and DOM updates, and waits for the message to render. If native reveal is unavailable, it falls back to finding the rendered message or placeholder in the DOM and scrolling to it. If targeted history loading is unavailable, the navigation reports an error instead of guessing.
+
+## Privacy
+
+This extension processes ChatGPT conversation data locally in your browser and only communicates with ChatGPT's own services as needed for its features. It does not send your conversations, personal data, or authentication information to the developer or third-party analytics or advertising services.
+
+## License
+
+GNU General Public License v3.0
