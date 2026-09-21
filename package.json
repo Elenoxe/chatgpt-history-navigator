@@ -1,8 +1,9 @@
 {
   "name": "chatgpt-history-navigator",
   "description": "Browse and navigate the complete history of ChatGPT conversations.",
+  "license": "GPL-3.0-only",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
