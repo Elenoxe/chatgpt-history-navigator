@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs"
+import { resolve } from "node:path"
 import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "wxt"
 
@@ -13,7 +15,16 @@ const noncharacters = new RegExp(
 
 export default defineConfig({
   webExt: {
-    disabled: true,
+    keepProfileChanges: true,
+  },
+  hooks: {
+    "config:resolved": ({ config }) => {
+      if (config.command !== "serve") return
+      const profile = resolve(config.wxtDir, "profiles", config.browser)
+      mkdirSync(profile, { recursive: true })
+      config.webExt.config[config.browser === "firefox" ? "firefoxProfile" : "chromiumProfile"] =
+        profile
+    },
   },
   srcDir: "src",
   modules: ["@wxt-dev/module-react"],
