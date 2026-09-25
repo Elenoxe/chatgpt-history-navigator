@@ -4,6 +4,23 @@ import { tryRevealQuestion } from "./bridge"
 
 const pageChangeEvent = "chatgpt-history-navigator:pagechange"
 
+export function observePageColorScheme(onChange: (scheme: string) => void): () => void {
+  const update = () => {
+    const scheme = getComputedStyle(document.body).colorScheme
+    onChange(scheme === "normal" ? "light dark" : scheme)
+  }
+  const observer = new MutationObserver(update)
+  for (const element of [document.documentElement, document.body])
+    observer.observe(element, { attributes: true })
+  const preference = matchMedia("(prefers-color-scheme: dark)")
+  preference.addEventListener("change", update)
+  update()
+  return () => {
+    observer.disconnect()
+    preference.removeEventListener("change", update)
+  }
+}
+
 export function observeComposerOffset(onChange: (bottom: number) => void): () => void {
   let composer: HTMLElement | null = null
   const resize = new ResizeObserver(update)

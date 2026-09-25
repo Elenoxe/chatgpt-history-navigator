@@ -13,11 +13,12 @@
   --timeline-tick-width: 26px;
   --timeline-tick-collapsed-width: 6px;
   --timeline-tick-height: 2px;
-  --timeline-tick-color: var(--tw-color-muted);
-  --timeline-tick-active-color: var(--tw-color-foreground);
+  /* Codex desktop default theme: navigation rail and hover preview. */
+  --timeline-tick-color: var(--timeline-preview-muted-color);
+  --timeline-tick-active-color: var(--timeline-preview-color);
   --timeline-tick-opacity: 0.4;
   --timeline-tick-active-opacity: 1;
-  --timeline-tick-current-opacity: 0.8;
+  --timeline-tick-current-opacity: 0.6;
   --timeline-tick-current-color: var(--timeline-tick-active-color);
   --timeline-tick-radius: 0;
   --timeline-animation-duration: 160ms;
@@ -25,7 +26,7 @@
   --timeline-pending-duration: 1400ms;
   --timeline-pending-min-opacity: 0.55;
   --timeline-pending-max-opacity: 0.85;
-  --timeline-focus-color: var(--tw-color-muted);
+  --timeline-focus-color: var(--timeline-tick-color);
   --timeline-focus-radius: 3px;
 
   /* Preview placement and text layout. */
@@ -37,12 +38,12 @@
   --timeline-preview-vertical-margin: 12px;
   --timeline-preview-padding: 10px;
   --timeline-preview-radius: 12px;
-  --timeline-preview-background: light-dark(#f5f5f5f2, #2b2b2bf2);
-  --timeline-preview-color: light-dark(#242424, #f3f3f3);
-  --timeline-preview-muted-color: light-dark(#747474, #959595);
-  --timeline-preview-border-color: light-dark(#00000014, #ffffff12);
+  --timeline-preview-background: light-dark(rgb(255 255 255 / 95%), rgb(45 45 45 / 95%));
+  --timeline-preview-color: light-dark(#1a1c1f, #dfdfdf);
+  --timeline-preview-muted-color: light-dark(rgb(26 28 31 / 49.5%), rgb(255 255 255 / 49.8%));
+  --timeline-preview-border-color: light-dark(rgb(26 28 31 / 7.8%), rgb(255 255 255 / 8.4%));
   --timeline-preview-border-width: 0.5px;
-  --timeline-preview-shadow: 0 8px 28px #00000012, 0 2px 6px #00000008;
+  --timeline-preview-shadow: 0 8px 16px -4px #0000001f;
   --timeline-preview-blur: 4px;
   --timeline-preview-font-size: 14px;
   --timeline-preview-title-weight: 600;
@@ -433,7 +434,7 @@
   font-size: 12px;
   line-height: 18px;
   font-weight: inherit;
-  color: light-dark(#929292, #777777);
+  color: var(--timeline-preview-muted-color);
 }
 .preview-link {
   text-decoration: underline;
@@ -446,24 +447,60 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
-.timeline-preview .hljs-keyword,
-.timeline-preview .hljs-selector-tag {
-  color: light-dark(#8250df, #d2a8ff);
-}
-.timeline-preview .hljs-string,
-.timeline-preview .hljs-attr {
-  color: light-dark(#0a3069, #a5d6ff);
-}
-.timeline-preview .hljs-number,
-.timeline-preview .hljs-literal {
-  color: light-dark(#0550ae, #79c0ff);
-}
-.timeline-preview .hljs-comment {
-  color: var(--timeline-preview-muted-color);
+.timeline-preview .hljs-comment,
+.timeline-preview .hljs-quote {
+  color: var(--color-codex-syntax-comment, light-dark(#4f4f4f, #b9b9b9));
   font-style: italic;
 }
-.timeline-preview .hljs-title {
-  color: light-dark(#953800, #ffa657);
+.timeline-preview .hljs-doctag,
+.timeline-preview .hljs-keyword,
+.timeline-preview .hljs-formula,
+.timeline-preview .hljs-operator {
+  color: var(--color-codex-syntax-keyword, light-dark(#ab4f7a, #f8a6c8));
+}
+.timeline-preview .hljs-built_in,
+.timeline-preview .hljs-class .hljs-title,
+.timeline-preview .hljs-literal,
+.timeline-preview .hljs-number {
+  color: var(--color-codex-syntax-literal, light-dark(#ac4f23, #f1a275));
+}
+.timeline-preview .hljs-string,
+.timeline-preview .hljs-regexp,
+.timeline-preview .hljs-addition,
+.timeline-preview .hljs-meta-string {
+  color: var(--color-codex-syntax-string, light-dark(#3a843f, #83d197));
+}
+.timeline-preview .hljs-variable,
+.timeline-preview .hljs-template-variable,
+.timeline-preview .hljs-type,
+.timeline-preview .hljs-title,
+.timeline-preview .hljs-selector-class,
+.timeline-preview .hljs-selector-pseudo {
+  color: var(--color-codex-syntax-variable, light-dark(#643cae, #b897f4));
+}
+.timeline-preview .hljs-attr,
+.timeline-preview .hljs-attribute,
+.timeline-preview .hljs-section,
+.timeline-preview .hljs-selector-attr {
+  color: var(--color-codex-syntax-attribute, light-dark(#b8802b, #f9dc78));
+}
+.timeline-preview .hljs-name,
+.timeline-preview .hljs-selector-tag,
+.timeline-preview .hljs-symbol,
+.timeline-preview .hljs-bullet,
+.timeline-preview .hljs-link,
+.timeline-preview .hljs-meta,
+.timeline-preview .hljs-selector-id {
+  color: var(--color-codex-syntax-name, light-dark(#1f4e94, #63a8f8));
+}
+.timeline-preview .hljs-deletion {
+  color: var(--color-codex-syntax-error, light-dark(#ba2623, #ff8583));
+}
+.timeline-preview .hljs-emphasis {
+  font-style: italic;
+}
+.timeline-preview .hljs-strong {
+  font-weight: 700;
 }
 @media (prefers-reduced-motion: reduce) {
   .timeline,

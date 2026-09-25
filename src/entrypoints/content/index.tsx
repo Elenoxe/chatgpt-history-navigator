@@ -5,6 +5,7 @@ import { i18n, initI18n } from "@/i18n"
 import {
   getPageLanguage,
   hideNativeTimeline,
+  observePageColorScheme,
   startConversationContextObserver,
 } from "@/platform/chatgpt/page"
 import { startCapturedHistorySync } from "@/features/timeline/query"
@@ -61,6 +62,9 @@ export default defineContentScript({
       onMount(container) {
         const app = document.createElement("div")
         container.append(app)
+        const stopObservingColorScheme = observePageColorScheme((scheme) => {
+          app.style.colorScheme = scheme
+        })
         const root = createRoot(app)
         root.render(
           <I18nextProvider i18n={i18n}>
@@ -69,13 +73,14 @@ export default defineContentScript({
             </QueryClientProvider>
           </I18nextProvider>,
         )
-        return root
+        return { root, stopObservingColorScheme }
       },
-      onRemove(root) {
+      onRemove(mounted) {
         restoreNativeTimeline()
         stopCapturedHistorySync()
         stopObservingConversationContext()
-        root?.unmount()
+        mounted?.stopObservingColorScheme()
+        mounted?.root.unmount()
         queryClient.clear()
       },
     })
