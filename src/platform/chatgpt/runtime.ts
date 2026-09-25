@@ -1,7 +1,7 @@
-// This adapter runs in MAIN. ChatGPT does not expose a public reveal API.
-// Its table-of-contents callback is retained in React Compiler's memo cache.
-// Match the callback's named request fields, never a minified name or slot index.
-// If that contract changes, return false and let DOM navigation take over.
+import { getConversationContextSnapshot } from "./page"
+
+// MAIN-world adapters for ChatGPT history loading and navigation.
+// Internal callbacks are discovered without fixed bundle names or memo slots.
 type Fiber = {
   return?: Fiber
   memoizedState?: { memoizedState?: unknown; next?: Fiber["memoizedState"] }
@@ -169,5 +169,99 @@ export function revealQuestion(messageId: string): boolean {
       if (ref.current === request) commit(() => finish(request.requestId))
     },
   }
+  return true
+}
+
+type Loader = (signal: AbortSignal) => Promise<void>
+
+function findLoader(conversationId: string): Loader | null | undefined {
+  const seen = new Set<Fiber>()
+  const loaders = new Set<Loader>()
+  let ready = false
+  // The conversation component exists before its first message DOM node.
+  for (const element of document.querySelectorAll("*")) {
+    const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"))
+    let fiber = key ? (element as unknown as Record<string, Fiber>)[key] : undefined
+    for (; fiber && !seen.has(fiber); fiber = fiber.return) {
+      seen.add(fiber)
+      const props = fiber.memoizedProps
+      if (
+        props?.conversationId !== conversationId ||
+        props.composerConversationId !== conversationId ||
+        !Array.isArray(props.entries)
+      )
+        continue
+      ready = true
+      for (const value of fiber.updateQueue?.memoCache?.data?.flat() ?? []) {
+        if (typeof value !== "function") continue
+        // Match the one-signal callback's store lookup and awaited loader call.
+        // No bundle name, minified identifier or memo slot is fixed. A changed
+        // contract is unavailable, never a reason to invoke an arbitrary callback.
+        const source = Function.prototype.toString.call(value)
+        if (
+          /^async\s+([\w$]+)=>\{let\s+([\w$]+)=([\w$]+)\.get\([^;]+\);[^;{}]*\.get\([^;]+\)>0&&await\s+\(0,[\w$]+\.[\w$]+\)\(\3,\2,\1\)\}$/.test(
+            source,
+          )
+        )
+          loaders.add(value as Loader)
+      }
+    }
+  }
+  return loaders.size === 1 ? [...loaders][0]! : ready ? null : undefined
+}
+
+export async function ensureNativeHistory(
+  userId: string,
+  conversationId: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const snapshot = JSON.stringify([userId, conversationId])
+  const check = () => {
+    signal.throwIfAborted()
+    if (getConversationContextSnapshot() !== snapshot)
+      throw new DOMException("Conversation changed", "AbortError")
+  }
+  const loader = await new Promise<Loader | null>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>
+    const observer = new MutationObserver(scan)
+    // Bound discovery only, never the host's network request. If the host no
+    // longer exposes this component, the explicitly supported API path remains usable.
+    const deadline = setTimeout(() => {
+      cleanup()
+      console.warn("[chatgpt-history-navigator] Native history component unavailable after 15s")
+      resolve(null)
+    }, 15_000)
+    function cleanup() {
+      clearTimeout(timer)
+      clearTimeout(deadline)
+      observer.disconnect()
+      signal.removeEventListener("abort", abort)
+    }
+    function abort() {
+      cleanup()
+      reject(signal.reason)
+    }
+    function scan() {
+      clearTimeout(timer)
+      try {
+        check()
+        const found = findLoader(conversationId)
+        if (found !== undefined) {
+          cleanup()
+          resolve(found)
+        } else timer = setTimeout(scan, 250)
+      } catch (error) {
+        cleanup()
+        reject(error)
+      }
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    observer.observe(document.documentElement, { childList: true, subtree: true })
+    scan()
+  })
+  check()
+  if (!loader) return false
+  await loader(signal)
+  check()
   return true
 }

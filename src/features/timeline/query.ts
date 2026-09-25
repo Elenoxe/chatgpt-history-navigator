@@ -12,7 +12,7 @@ import {
   type ConversationPage,
 } from "@/platform/chatgpt/conversation"
 import { queryOptions, type QueryClient } from "@tanstack/react-query"
-import { subscribeHistoryCaptureEvents } from "@/platform/chatgpt/bridge"
+import { requestNativeHistory, subscribeHistoryCaptureEvents } from "@/platform/chatgpt/bridge"
 import {
   getConversationContextSnapshot,
   subscribeConversationContext,
@@ -29,6 +29,7 @@ const historyLoadStates = new WeakMap<
   {
     acceptedSnapshotStartedAt: number
     activeLoadStartedAt: number
+    nativeLoading: number
     streamStartedAt: number
     streamMessageIds: Set<string>
     streamBranchParentId?: string
@@ -42,6 +43,7 @@ function getHistoryLoadState(client: QueryClient, queryKey: readonly unknown[]) 
     load = {
       acceptedSnapshotStartedAt: 0,
       activeLoadStartedAt: 0,
+      nativeLoading: 0,
       streamStartedAt: 0,
       streamMessageIds: new Set(),
       writingPatches: new Map(),
@@ -257,14 +259,14 @@ export function startCapturedHistorySync(client: QueryClient) {
     const state = client.getQueryState<ConversationHistory>(queryKey)
     const supersedesActiveLoad =
       state?.fetchStatus === "fetching" && snapshotStartedAt > load.activeLoadStartedAt
-    if (history.isHistoryComplete || supersedesActiveLoad) {
+    if (!load.nativeLoading && (history.isHistoryComplete || supersedesActiveLoad)) {
       void client.cancelQueries({ queryKey, exact: true })
     }
     if (history.isHistoryComplete || !state?.data?.isHistoryComplete) {
       client.setQueryData(queryKey, applyWritingUpdates(history, load, snapshotStartedAt))
     }
     if (history.isHistoryComplete) clearPages()
-    else if (supersedesActiveLoad || state?.fetchStatus !== "fetching") {
+    else if (!load.nativeLoading && (supersedesActiveLoad || state?.fetchStatus !== "fetching")) {
       // A newer partial snapshot invalidates an older load, but still needs
       // completion. Keep any complete cached history visible during that load.
       void client.invalidateQueries({ queryKey, exact: true })
@@ -296,9 +298,28 @@ export function getTimelineQueryOptions(
     queryFn: async ({ signal }): Promise<ConversationHistory> => {
       if (!userId || !conversationId) throw new Error("No active conversation identity")
       const load = getHistoryLoadState(client, queryKey)
-      const requestStartedAt = performance.timeOrigin + performance.now()
+      let requestStartedAt = performance.timeOrigin + performance.now()
       const startedDuringGeneration =
         client.getQueryData<ConversationHistory>(queryKey)?.isGenerating === true
+      load.activeLoadStartedAt = requestStartedAt
+      load.nativeLoading = requestStartedAt
+      let nativeAvailable: boolean
+      try {
+        nativeAvailable = await requestNativeHistory(userId, conversationId, signal)
+      } finally {
+        if (load.nativeLoading === requestStartedAt) load.nativeLoading = 0
+      }
+      signal.throwIfAborted()
+      const captured = client.getQueryData<ConversationHistory>(queryKey)
+      if (captured?.isHistoryComplete) return captured
+      console.info(
+        "[chatgpt-history-navigator] Loading history through the API:",
+        nativeAvailable
+          ? "native history complete but extension cache incomplete"
+          : "native loader unavailable",
+      )
+      // This is a new snapshot, later than any partial native captures.
+      requestStartedAt = performance.timeOrigin + performance.now()
       load.activeLoadStartedAt = requestStartedAt
       const accessToken = await fetchAccessToken(signal)
       const options = { accessToken, signal }

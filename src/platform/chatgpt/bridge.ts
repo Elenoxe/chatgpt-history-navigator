@@ -8,6 +8,100 @@ import {
 } from "./conversation"
 
 const channel = "chatgpt-history-navigator:history"
+const ensureHistoryEvent = "chatgpt-history-navigator:ensure-history"
+const ensureHistoryCancelEvent = "chatgpt-history-navigator:cancel-ensure-history"
+const nativeHistoryRequestSchema = z.object({
+  requestId: z.uuid(),
+  userId: z.string().min(1),
+  conversationId: z.uuid(),
+})
+const nativeHistoryResultSchema = nativeHistoryRequestSchema.extend({
+  result: z.enum(["loaded", "unavailable", "error"]),
+})
+
+export function installNativeHistoryHandler(
+  load: (userId: string, conversationId: string, signal: AbortSignal) => Promise<boolean>,
+) {
+  document.addEventListener(ensureHistoryEvent, (event) => {
+    const target = event.target
+    if (!(target instanceof HTMLElement) || target.parentElement !== document.documentElement)
+      return
+    const parsed = nativeHistoryRequestSchema.safeParse(target.dataset)
+    if (!parsed.success || target.dataset.accepted) return
+    target.dataset.accepted = "true"
+    const controller = new AbortController()
+    const cancel = () => controller.abort()
+    target.addEventListener(ensureHistoryCancelEvent, cancel, { once: true })
+    void (async () => {
+      let result: "loaded" | "unavailable" | "error"
+      try {
+        result = (await load(parsed.data.userId, parsed.data.conversationId, controller.signal))
+          ? "loaded"
+          : "unavailable"
+      } catch (error) {
+        if (controller.signal.aborted) return
+        console.error("[chatgpt-history-navigator] Native history load failed:", error)
+        result = "error"
+      } finally {
+        target.removeEventListener(ensureHistoryCancelEvent, cancel)
+      }
+      if (!controller.signal.aborted)
+        // Same message queue as captures: all preceding captures are delivered
+        // before the requester decides whether its cache still needs filling.
+        window.postMessage(
+          { channel, type: "native-history-done", payload: { ...parsed.data, result } },
+          location.origin,
+        )
+    })()
+  })
+}
+
+export function requestNativeHistory(
+  userId: string,
+  conversationId: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const request = document.createElement("span")
+    request.hidden = true
+    const requestId = crypto.randomUUID()
+    Object.assign(request.dataset, { requestId, userId, conversationId })
+    const cleanup = () => {
+      request.remove()
+      signal.removeEventListener("abort", abort)
+      window.removeEventListener("message", done)
+    }
+    const abort = () => {
+      request.dispatchEvent(new Event(ensureHistoryCancelEvent))
+      cleanup()
+      reject(signal.reason)
+    }
+    const done = (event: MessageEvent) => {
+      if (!isFromHistoryChannel(event) || event.data.type !== "native-history-done") return
+      const parsed = nativeHistoryResultSchema.safeParse(event.data.payload)
+      if (
+        !parsed.success ||
+        parsed.data.requestId !== requestId ||
+        parsed.data.userId !== userId ||
+        parsed.data.conversationId !== conversationId
+      )
+        return
+      cleanup()
+      if (parsed.data.result === "error") reject(new Error("Native history load failed"))
+      else resolve(parsed.data.result === "loaded")
+    }
+    window.addEventListener("message", done)
+    signal.addEventListener("abort", abort, { once: true })
+    document.documentElement.append(request)
+    request.dispatchEvent(new Event(ensureHistoryEvent, { bubbles: true }))
+    if (request.dataset.accepted !== "true") {
+      cleanup()
+      resolve(false)
+    }
+  })
+}
+
 const revealEvent = "chatgpt-history-navigator:reveal-question"
 const loadQuestionEvent = "chatgpt-history-navigator:load-question"
 const loadQuestionDoneEvent = "chatgpt-history-navigator:load-question-done"

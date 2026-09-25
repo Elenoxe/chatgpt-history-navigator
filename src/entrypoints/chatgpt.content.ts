@@ -1,13 +1,15 @@
 import {
   createHistoryPublisher,
   installNavigationHandlers,
+  installNativeHistoryHandler,
   type HistoryCaptureEvent,
 } from "@/platform/chatgpt/bridge"
 import {
   revealQuestion,
   loadQuestionHistory,
   controlNativeNavigation,
-} from "@/platform/chatgpt/navigation"
+  ensureNativeHistory,
+} from "@/platform/chatgpt/runtime"
 import { parseConversation, parseConversationPage } from "@/platform/chatgpt/conversation"
 import { getConversationContextSnapshot } from "@/platform/chatgpt/page"
 import { installMessageStreamCapture } from "@/platform/chatgpt/stream"
@@ -21,6 +23,22 @@ export default defineContentScript({
     const publisher = createHistoryPublisher()
     const messageStreamCapture = installMessageStreamCapture(publisher)
     const originalFetch = window.fetch
+    const captures = new Map<string, Set<Promise<void>>>()
+    const nativeLoads = new Set<{ conversationId: string; captures: Set<Promise<void>> }>()
+    installNativeHistoryHandler(async (userId, conversationId, signal) => {
+      const operation = { conversationId, captures: new Set(captures.get(conversationId)) }
+      nativeLoads.add(operation)
+      try {
+        const available = await ensureNativeHistory(userId, conversationId, signal)
+        // Include settled captures too, so a parsing failure cannot turn into
+        // an automatic second request. Completion is queued after publication.
+        await Promise.all(operation.captures)
+        signal.throwIfAborted()
+        return available
+      } finally {
+        nativeLoads.delete(operation)
+      }
+    })
     window.fetch = function (input, init) {
       // Request bodies must be cloned before native fetch consumes them.
       let captureInput = input
@@ -145,7 +163,9 @@ export default defineContentScript({
           HistoryCaptureEvent["result"],
           { kind: "unavailable" }
         >["reason"] = "request-failed"
-        void responsePromise
+        const pending = captures.get(requestContext.conversationId) ?? new Set<Promise<void>>()
+        captures.set(requestContext.conversationId, pending)
+        const capture = responsePromise
           .then(async (result) => {
             if (publisher.isStopped()) return
             if (!result.ok || !result.headers.get("content-type")?.includes("application/json"))
@@ -182,12 +202,23 @@ export default defineContentScript({
               reader.releaseLock()
             }
           })
-          .catch(() =>
+          .catch((error) => {
             publisher.publish({
               ...requestContext,
               result: { kind: "unavailable", reason: failureReason },
-            }),
-          )
+            })
+            throw error
+          })
+        pending.add(capture)
+        for (const operation of nativeLoads)
+          if (operation.conversationId === requestContext.conversationId)
+            operation.captures.add(capture)
+        void capture
+          .finally(() => {
+            pending.delete(capture)
+            if (!pending.size) captures.delete(requestContext.conversationId)
+          })
+          .catch(() => {}) // Capture errors must not reject the host's fetch.
       } catch {
         console.warn("[chatgpt-history-navigator] Unable to observe history request")
       }
