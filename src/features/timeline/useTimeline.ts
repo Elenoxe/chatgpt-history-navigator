@@ -12,6 +12,9 @@ import { messageText } from "./previewContent"
 import { toast } from "sonner"
 import { useTranslation } from "react-i18next"
 
+const loadErrorToast = "chatgpt-history-navigator:load-error"
+const navigationErrorToast = "chatgpt-history-navigator:navigation-error"
+
 export function useTimeline() {
   const { t } = useTranslation()
   const snapshot = useSyncExternalStore(
@@ -33,18 +36,31 @@ export function useTimeline() {
     snapshot: string
     id: string
   } | null>(null)
-  useEffect(() => () => navigation.current?.abort(), [snapshot])
+  useEffect(
+    () => () => {
+      navigation.current?.abort()
+      toast.dismiss(loadErrorToast)
+      toast.dismiss(navigationErrorToast)
+    },
+    [snapshot],
+  )
   const jumpToQuestion = async (id: string) => {
     navigation.current?.abort()
     const controller = new AbortController()
     navigation.current = controller
+    toast.dismiss(navigationErrorToast)
     setPendingNavigation({ snapshot, id })
     try {
       await scrollToQuestion(id, controller.signal)
     } catch (error) {
-      if (controller.signal.aborted) return
-      console.error("[chatgpt-history-navigator] Failed to locate question:", error)
-      toast.error(t("timeline.errors.navigationFailed"))
+      if (controller.signal.aborted || getConversationContextSnapshot() !== snapshot) return
+      console.error("[chatgpt-history-navigator] Failed to locate question:", {
+        conversationId,
+        messageId: id,
+        name: error instanceof Error ? error.name : "UnknownError",
+        message: error instanceof Error ? error.message : "Unknown navigation error",
+      })
+      toast.error(t("timeline.errors.navigationFailed"), { id: navigationErrorToast })
     } finally {
       if (navigation.current === controller) {
         navigation.current = null
@@ -54,6 +70,32 @@ export function useTimeline() {
   }
   const client = useQueryClient()
   const query = useQuery(getTimelineQueryOptions(client, userId, conversationId))
+  const reportedLoadError = useRef<string | null>(null)
+  useEffect(() => {
+    if (getConversationContextSnapshot() !== snapshot || query.isFetching) return
+    if (!query.isError) {
+      if (query.isSuccess) toast.dismiss(loadErrorToast)
+      return
+    }
+    const event = `${snapshot}:${query.errorUpdatedAt}`
+    if (reportedLoadError.current === event) return
+    reportedLoadError.current = event
+    console.error("[chatgpt-history-navigator] History loading failed:", {
+      conversationId,
+      name: query.error.name,
+      message: query.error.message,
+    })
+    toast.error(t("timeline.errors.historyFailed"), { id: loadErrorToast })
+  }, [
+    snapshot,
+    conversationId,
+    query.isFetching,
+    query.isError,
+    query.isSuccess,
+    query.error,
+    query.errorUpdatedAt,
+    t,
+  ])
   const questions = useMemo(() => {
     const questions: {
       id: string

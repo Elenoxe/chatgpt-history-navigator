@@ -222,6 +222,10 @@ export async function ensureNativeHistory(
       throw new DOMException("Conversation changed", "AbortError")
   }
   const loader = await new Promise<Loader | null>((resolve, reject) => {
+    const startedAt = performance.now()
+    console.debug("[chatgpt-history-navigator] Waiting for native history loader:", {
+      conversationId,
+    })
     let timer: ReturnType<typeof setTimeout>
     const observer = new MutationObserver(scan)
     // Bound discovery only, never the host's network request. If the host no
@@ -238,6 +242,9 @@ export async function ensureNativeHistory(
       signal.removeEventListener("abort", abort)
     }
     function abort() {
+      console.debug("[chatgpt-history-navigator] Native history discovery cancelled:", {
+        conversationId,
+      })
       cleanup()
       reject(signal.reason)
     }
@@ -247,6 +254,16 @@ export async function ensureNativeHistory(
         check()
         const found = findLoader(conversationId)
         if (found !== undefined) {
+          if (found)
+            console.debug("[chatgpt-history-navigator] Native history loader ready:", {
+              conversationId,
+              elapsedMs: Math.round(performance.now() - startedAt),
+            })
+          else
+            console.warn(
+              "[chatgpt-history-navigator] Native history loader missing or ambiguous:",
+              { conversationId },
+            )
           cleanup()
           resolve(found)
         } else timer = setTimeout(scan, 250)
@@ -261,6 +278,7 @@ export async function ensureNativeHistory(
   })
   check()
   if (!loader) return false
+  console.debug("[chatgpt-history-navigator] Calling native history loader:", { conversationId })
   await loader(signal)
   check()
   return true

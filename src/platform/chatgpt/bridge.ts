@@ -40,7 +40,12 @@ export function installNativeHistoryHandler(
           : "unavailable"
       } catch (error) {
         if (controller.signal.aborted) return
-        console.error("[chatgpt-history-navigator] Native history load failed:", error)
+        console.error("[chatgpt-history-navigator] Native history load failed:", {
+          conversationId: parsed.data.conversationId,
+          requestId: parsed.data.requestId,
+          name: error instanceof Error ? error.name : "UnknownError",
+          message: error instanceof Error ? error.message : "Unknown native history error",
+        })
         result = "error"
       } finally {
         target.removeEventListener(ensureHistoryCancelEvent, cancel)
@@ -73,6 +78,10 @@ export function requestNativeHistory(
       window.removeEventListener("message", done)
     }
     const abort = () => {
+      console.debug("[chatgpt-history-navigator] Native history request cancelled:", {
+        conversationId,
+        requestId,
+      })
       request.dispatchEvent(new Event(ensureHistoryCancelEvent))
       cleanup()
       reject(signal.reason)

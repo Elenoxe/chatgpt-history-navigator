@@ -13,6 +13,7 @@
       "imageFallbackLabel": "Image attachment"
     },
     "errors": {
+      "historyFailed": "Couldn't load the complete conversation history.",
       "navigationFailed": "Couldn't load or locate this message."
     }
   }

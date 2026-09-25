@@ -47,6 +47,8 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
   signal.throwIfAborted()
   const id = CSS.escape(messageId)
   const path = location.pathname
+  const startedAt = performance.now()
+  console.debug("[chatgpt-history-navigator] Navigation started:", { messageId })
   await new Promise<void>((resolve, reject) => {
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
@@ -76,10 +78,15 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
       document.removeEventListener("keydown", onKeyDown, true)
     }
     const abort = () => {
+      console.debug("[chatgpt-history-navigator] Navigation cancelled:", {
+        messageId,
+        reason: "aborted",
+      })
       cleanup()
       reject(signal.reason)
     }
-    const cancel = () => {
+    const cancel = (reason: string) => {
+      console.debug("[chatgpt-history-navigator] Navigation cancelled:", { messageId, reason })
       cleanup()
       resolve()
     }
@@ -88,11 +95,11 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
       reject(error)
     }
     const onManualScroll = (event: Event) => {
-      if (root && event.composedPath().includes(root)) cancel()
+      if (root && event.composedPath().includes(root)) cancel("manual-scroll")
     }
     const onPointerDown = (event: PointerEvent) => {
       // Clicking/dragging the conversation, including its scrollbar, takes over.
-      if (root && event.composedPath().includes(root)) cancel()
+      if (root && event.composedPath().includes(root)) cancel("pointer")
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" && (!root || !event.composedPath().includes(root))) return
@@ -101,7 +108,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
           event.key,
         )
       )
-        cancel()
+        cancel("keyboard")
     }
     function schedule(delay: number) {
       if (stopped) return
@@ -109,13 +116,17 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
       timer = setTimeout(advance, delay)
     }
     function finish() {
+      console.debug("[chatgpt-history-navigator] Navigation completed:", {
+        messageId,
+        elapsedMs: Math.round(performance.now() - startedAt),
+      })
       cleanup()
       resolve()
     }
     function advance() {
       if (stopped) return
       if (location.pathname !== path) {
-        cancel()
+        cancel("conversation-changed")
         return
       }
       const main = document.querySelector<HTMLElement>("main")
@@ -140,6 +151,9 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
         const placeholder = main.querySelector<HTMLElement>(`[data-turn-id-container="${id}"]`)
         if (!placeholder && historyLoad === "idle") {
           historyLoad = "pending"
+          console.debug("[chatgpt-history-navigator] Loading history for navigation:", {
+            messageId,
+          })
           void requestQuestionHistory(messageId, historyController.signal)
             .then((loaded) => {
               if (stopped) return
@@ -148,6 +162,7 @@ export async function scrollToQuestion(messageId: string, signal: AbortSignal): 
                 return
               }
               historyLoad = "complete"
+              console.debug("[chatgpt-history-navigator] Navigation history ready:", { messageId })
               schedule(0)
             })
             .catch((error) => {

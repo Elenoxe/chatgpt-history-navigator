@@ -13,6 +13,7 @@
       "imageFallbackLabel": "图片附件"
     },
     "errors": {
+      "historyFailed": "无法加载完整对话历史。",
       "navigationFailed": "无法加载或定位此消息。"
     }
   }

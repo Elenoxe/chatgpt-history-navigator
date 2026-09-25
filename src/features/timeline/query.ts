@@ -297,6 +297,17 @@ export function getTimelineQueryOptions(
     gcTime: 30 * 60_000,
     queryFn: async ({ signal }): Promise<ConversationHistory> => {
       if (!userId || !conversationId) throw new Error("No active conversation identity")
+      const startedAt = performance.now()
+      console.debug("[chatgpt-history-navigator] History loading started:", { conversationId })
+      const complete = (history: ConversationHistory, source: string) => {
+        console.debug("[chatgpt-history-navigator] History loading completed:", {
+          conversationId,
+          source,
+          messages: history.messages.length,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        })
+        return history
+      }
       const load = getHistoryLoadState(client, queryKey)
       let requestStartedAt = performance.timeOrigin + performance.now()
       const startedDuringGeneration =
@@ -311,13 +322,13 @@ export function getTimelineQueryOptions(
       }
       signal.throwIfAborted()
       const captured = client.getQueryData<ConversationHistory>(queryKey)
-      if (captured?.isHistoryComplete) return captured
-      console.info(
-        "[chatgpt-history-navigator] Loading history through the API:",
-        nativeAvailable
+      if (captured?.isHistoryComplete) return complete(captured, "captured/cache")
+      console.info("[chatgpt-history-navigator] Loading history through the API:", {
+        conversationId,
+        reason: nativeAvailable
           ? "native history complete but extension cache incomplete"
           : "native loader unavailable",
-      )
+      })
       // This is a new snapshot, later than any partial native captures.
       requestStartedAt = performance.timeOrigin + performance.now()
       load.activeLoadStartedAt = requestStartedAt
@@ -354,7 +365,7 @@ export function getTimelineQueryOptions(
         const history = await fetchConversation(conversationId, options)
         signal.throwIfAborted()
         if (history.isHistoryComplete) {
-          return updateHistoryCache(history)
+          return complete(updateHistoryCache(history), "api")
         }
         updateHistoryCache(history)
       } catch (error) {
@@ -364,6 +375,7 @@ export function getTimelineQueryOptions(
           throw error
       }
       const pages: ConversationPage[] = []
+      console.debug("[chatgpt-history-navigator] Loading paginated history:", { conversationId })
       let before: string | undefined
       do {
         signal.throwIfAborted()
@@ -379,7 +391,7 @@ export function getTimelineQueryOptions(
         if (before === undefined) {
           if (!history.isHistoryComplete)
             throw new ConversationDataError("History is missing the latest messages")
-          return cachedHistory
+          return complete(cachedHistory, "paginated-api")
         }
       } while (before !== undefined)
       throw new ConversationDataError("History did not complete")
