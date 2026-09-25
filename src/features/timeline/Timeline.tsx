@@ -17,6 +17,7 @@ export default function Timeline() {
   const keepPreview = () => clearTimeout(closeTimer.current)
   useEffect(() => () => clearTimeout(closeTimer.current), [])
   const interactingWithTrack = useRef(false)
+  const previewSuspended = useRef(false)
   const followedQuestion = useRef<string | null>(null)
   const layout = useRef<{
     conversationId: string | null
@@ -26,6 +27,28 @@ export default function Timeline() {
     top: number
     bottomEdge: number
   } | null>(null)
+  useEffect(() => {
+    const suspend = () => {
+      previewSuspended.current = true
+      clearTimeout(closeTimer.current)
+      setPreview(null)
+      interactingWithTrack.current = false
+    }
+    const onVisibilityChange = () => {
+      if (document.hidden) suspend()
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.altKey && !event.ctrlKey && !event.metaKey) previewSuspended.current = false
+    }
+    window.addEventListener("blur", suspend)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => {
+      window.removeEventListener("blur", suspend)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("keydown", onKeyDown, true)
+    }
+  }, [])
   const [preview, setPreview] = useState<{
     id: string
     conversationId: string | null
@@ -43,8 +66,21 @@ export default function Timeline() {
       ? timeline.questions.find((question) => question.id === preview?.id)
       : undefined
   const showPreview = (id: string, element: HTMLElement) => {
+    if (previewSuspended.current || !document.hasFocus()) return
     keepPreview()
-    setPreview({ id, conversationId: timeline.conversationId, anchor: element })
+    setPreview((current) =>
+      current?.id === id &&
+      current.anchor === element &&
+      current.conversationId === timeline.conversationId
+        ? current
+        : { id, conversationId: timeline.conversationId, anchor: element },
+    )
+  }
+  const pointerPreview = (id: string, element: HTMLElement) => {
+    if (!document.hasFocus()) return
+    previewSuspended.current = false
+    interactingWithTrack.current = true
+    showPreview(id, element)
   }
   const closePreview = () => {
     keepPreview()
@@ -277,7 +313,7 @@ export default function Timeline() {
             interactingWithTrack.current = false
           }}
           onFocus={() => {
-            interactingWithTrack.current = true
+            if (!previewSuspended.current) interactingWithTrack.current = true
           }}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget as Node | null))
@@ -295,8 +331,14 @@ export default function Timeline() {
               aria-current={timeline.visibleQuestionIds.has(item.id) ? "true" : undefined}
               aria-label={`${index + 1}. ${item.text || t("timeline.nonTextMessage")}`}
               aria-describedby={question?.id === item.id ? "timeline-preview" : undefined}
-              onPointerEnter={(event) => showPreview(item.id, event.currentTarget)}
+              onPointerEnter={(event) => pointerPreview(item.id, event.currentTarget)}
+              onPointerMove={(event) => pointerPreview(item.id, event.currentTarget)}
+              onPointerDown={(event) => pointerPreview(item.id, event.currentTarget)}
               onFocus={(event) => showPreview(item.id, event.currentTarget)}
+              onKeyDown={(event) => {
+                if (["Enter", " ", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key))
+                  showPreview(item.id, event.currentTarget)
+              }}
               onBlur={scheduleClose}
               onClick={(event) => {
                 showPreview(item.id, event.currentTarget)
