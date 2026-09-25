@@ -3,14 +3,15 @@ import { createInstance } from "i18next"
 import { useEffect } from "react"
 import { initReactI18next } from "react-i18next"
 import en from "./locales/en.json"
+import ja from "./locales/ja.json"
 import zhCN from "./locales/zh-CN.json"
 
 export const i18n = createInstance()
 
 function getSupportedLanguage(pageLanguage: string) {
   const language = new Intl.Locale(pageLanguage).language
-  // Chinese variants use Simplified Chinese; other languages use English.
-  return language === "zh" ? "zh-CN" : "en"
+  // Chinese variants use Simplified Chinese; unsupported languages use English.
+  return language === "zh" ? "zh-CN" : language === "ja" ? "ja" : "en"
 }
 
 export async function syncI18nLanguage(pageLanguage: string) {
@@ -21,11 +22,12 @@ export async function syncI18nLanguage(pageLanguage: string) {
 export function initI18n(pageLanguage: string) {
   return i18n.use(initReactI18next).init({
     lng: getSupportedLanguage(pageLanguage),
-    supportedLngs: ["en", "zh-CN"],
+    supportedLngs: ["en", "ja", "zh-CN"],
     load: "currentOnly",
     fallbackLng: false,
     resources: {
       en: { translation: en },
+      ja: { translation: ja },
       "zh-CN": { translation: zhCN },
     },
     interpolation: { escapeValue: false }, // React escapes rendered text.

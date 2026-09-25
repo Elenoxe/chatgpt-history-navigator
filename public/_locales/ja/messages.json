@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "ChatGPT 履歴ナビゲーター"
+  },
+  "extensionDescription": {
+    "message": "ChatGPT の会話履歴全体を閲覧し、目的のメッセージに移動できます。"
+  }
+}

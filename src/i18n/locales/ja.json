@@ -1,0 +1,20 @@
+{
+  "notifications": {
+    "label": "通知",
+    "dismiss": "通知を閉じる"
+  },
+  "timeline": {
+    "label": "会話履歴",
+    "nonTextMessage": "テキスト以外のメッセージ（画像や添付ファイル）",
+    "preview": {
+      "responsesRegionLabel": "アシスタントの回答",
+      "tableRegionLabel": "表",
+      "sourceFallbackLabel": "出典",
+      "imageFallbackLabel": "添付画像"
+    },
+    "errors": {
+      "historyFailed": "会話履歴全体を読み込めませんでした。",
+      "navigationFailed": "このメッセージの読み込み、または表示位置の特定に失敗しました。"
+    }
+  }
+}
