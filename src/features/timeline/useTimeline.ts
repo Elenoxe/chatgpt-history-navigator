@@ -51,7 +51,11 @@ export function useTimeline() {
     toast.dismiss(navigationErrorToast)
     setPendingNavigation({ snapshot, id })
     try {
-      await scrollToQuestion(id, controller.signal)
+      await scrollToQuestion(
+        id,
+        questions.map((question) => question.id),
+        controller.signal,
+      )
     } catch (error) {
       if (controller.signal.aborted || getConversationContextSnapshot() !== snapshot) return
       console.error("[chatgpt-history-navigator] Failed to locate question:", {

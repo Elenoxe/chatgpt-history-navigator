@@ -112,78 +112,44 @@ export function requestNativeHistory(
 }
 
 const revealEvent = "chatgpt-history-navigator:reveal-question"
-const loadQuestionEvent = "chatgpt-history-navigator:load-question"
-const loadQuestionDoneEvent = "chatgpt-history-navigator:load-question-done"
-const cancelLoadQuestionEvent = "chatgpt-history-navigator:cancel-load-question"
+const revealDoneEvent = "chatgpt-history-navigator:reveal-question-done"
+const cancelRevealEvent = "chatgpt-history-navigator:cancel-reveal-question"
 const revealRequestSchema = z.object({
   messageId: z.uuid(),
   pathname: z.string(),
-  action: z.enum(["reveal", "navigation-pending", "cancel-navigation"]).default("reveal"),
 })
 
 export function installNavigationHandlers(
-  reveal: (messageId: string) => boolean,
-  loadHistory: (messageId: string, signal: AbortSignal) => Promise<boolean>,
-  controlNavigation: (messageId: string, cancel: boolean) => boolean,
+  reveal: (messageId: string, signal: AbortSignal) => Promise<boolean>,
 ) {
   document.addEventListener(revealEvent, (event) => {
     const target = event.target
     if (!(target instanceof HTMLElement) || target.parentElement !== document.documentElement)
       return
-    const parsed = revealRequestSchema.safeParse({
-      messageId: target.dataset.messageId,
-      pathname: target.dataset.pathname,
-      action: target.dataset.action,
-    })
-    if (!parsed.success || parsed.data.pathname !== location.pathname) return
-    let revealed = false
-    try {
-      if (parsed.data.action === "reveal") revealed = reveal(parsed.data.messageId)
-      else if (
-        parsed.data.action === "navigation-pending" ||
-        parsed.data.action === "cancel-navigation"
-      ) {
-        revealed = controlNavigation(
-          parsed.data.messageId,
-          parsed.data.action === "cancel-navigation",
-        )
-      }
-    } catch (error) {
-      console.warn("[chatgpt-history-navigator] Native question reveal failed:", error)
-    }
-    target.dataset.revealed = String(revealed)
-  })
-  document.addEventListener(loadQuestionEvent, (event) => {
-    const target = event.target
-    if (!(target instanceof HTMLElement) || target.parentElement !== document.documentElement)
+    const parsed = revealRequestSchema.safeParse(target.dataset)
+    if (!parsed.success || parsed.data.pathname !== location.pathname || target.dataset.accepted)
       return
-    const parsed = revealRequestSchema.safeParse({
-      messageId: target.dataset.messageId,
-      pathname: target.dataset.pathname,
-    })
-    if (!parsed.success || parsed.data.pathname !== location.pathname || target.dataset.loading)
-      return
-    target.dataset.loading = "true"
+    target.dataset.accepted = "true"
     const controller = new AbortController()
     const cancel = () => controller.abort()
-    target.addEventListener(cancelLoadQuestionEvent, cancel, { once: true })
-    void loadHistory(parsed.data.messageId, controller.signal)
-      .then((loaded) => {
-        target.dataset.result = loaded ? "loaded" : "unavailable"
+    target.addEventListener(cancelRevealEvent, cancel, { once: true })
+    void reveal(parsed.data.messageId, controller.signal)
+      .then((revealed) => {
+        target.dataset.result = revealed ? "revealed" : "unavailable"
       })
       .catch((error) => {
         if (controller.signal.aborted) return
-        console.error("[chatgpt-history-navigator] Native history load failed:", error)
+        console.warn("[chatgpt-history-navigator] Native navigation failed:", error)
         target.dataset.result = "error"
       })
       .finally(() => {
-        target.removeEventListener(cancelLoadQuestionEvent, cancel)
-        if (!controller.signal.aborted) target.dispatchEvent(new Event(loadQuestionDoneEvent))
+        target.removeEventListener(cancelRevealEvent, cancel)
+        if (!controller.signal.aborted) target.dispatchEvent(new Event(revealDoneEvent))
       })
   })
 }
 
-export function requestQuestionHistory(messageId: string, signal: AbortSignal): Promise<boolean> {
+export function tryRevealQuestion(messageId: string, signal: AbortSignal): Promise<boolean> {
   signal.throwIfAborted()
   return new Promise((resolve, reject) => {
     const request = document.createElement("span")
@@ -192,64 +158,30 @@ export function requestQuestionHistory(messageId: string, signal: AbortSignal): 
     request.dataset.pathname = location.pathname
     const cleanup = () => {
       signal.removeEventListener("abort", abort)
-      request.removeEventListener(loadQuestionDoneEvent, done)
+      request.removeEventListener(revealDoneEvent, done)
       request.remove()
     }
     const abort = () => {
-      request.dispatchEvent(new Event(cancelLoadQuestionEvent))
+      request.dispatchEvent(new Event(cancelRevealEvent))
       cleanup()
       reject(signal.reason)
     }
     const done = () => {
       const result = request.dataset.result
       cleanup()
-      if (result === "error") reject(new Error("Native history load failed"))
-      else resolve(result === "loaded")
+      if (result === "error") reject(new Error("Native navigation failed"))
+      else resolve(result === "revealed")
     }
     signal.addEventListener("abort", abort, { once: true })
-    request.addEventListener(loadQuestionDoneEvent, done)
+    request.addEventListener(revealDoneEvent, done)
     document.documentElement.append(request)
-    request.dispatchEvent(new Event(loadQuestionEvent, { bubbles: true }))
-    // Synchronous acknowledgement distinguishes a missing adapter from a slow
-    // request, without imposing a timeout on loading.
-    if (request.dataset.loading !== "true") {
+    request.dispatchEvent(new Event(revealEvent, { bubbles: true }))
+    // A missing adapter falls back immediately; a slow operation is not a failure.
+    if (request.dataset.accepted !== "true") {
       cleanup()
       resolve(false)
     }
   })
-}
-
-export function tryRevealQuestion(messageId: string): boolean {
-  return dispatchNavigationAction(messageId, "reveal")
-}
-
-export function isNativeNavigationPending(messageId: string): boolean {
-  return dispatchNavigationAction(messageId, "navigation-pending")
-}
-
-export function cancelNativeNavigation(messageId: string) {
-  dispatchNavigationAction(messageId, "cancel-navigation")
-}
-
-function dispatchNavigationAction(
-  messageId: string,
-  action: z.infer<typeof revealRequestSchema>["action"],
-): boolean {
-  // DOM event dispatch crosses the two worlds synchronously. An old queued
-  // postMessage can therefore never execute after a newer navigation/cancel.
-  // Only validated message IDs cross this bridge; no functions or credentials.
-  const request = document.createElement("span")
-  request.hidden = true
-  request.dataset.messageId = messageId
-  request.dataset.pathname = location.pathname
-  request.dataset.action = action
-  document.documentElement.append(request)
-  try {
-    request.dispatchEvent(new Event(revealEvent, { bubbles: true }))
-    return request.dataset.revealed === "true"
-  } finally {
-    request.remove()
-  }
 }
 const historyCaptureEventSchema = z.object({
   userId: z.string().min(1),

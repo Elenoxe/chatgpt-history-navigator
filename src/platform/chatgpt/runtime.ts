@@ -9,166 +9,60 @@ type Fiber = {
   updateQueue?: { memoCache?: { data?: unknown[][] } }
 }
 
-let nativeNavigation: { messageId: string; pending: () => boolean; cancel: () => void } | undefined
-
-export function controlNativeNavigation(messageId: string, cancel: boolean): boolean {
-  if (nativeNavigation?.messageId !== messageId) return false
-  if (cancel) {
-    nativeNavigation.cancel()
-    nativeNavigation = undefined
-    return false
-  }
-  return nativeNavigation.pending()
+type NativeNavigation = {
+  getEntryGeometry: (key: string) => { startPx: number; endPx: number } | null
+  scrollToKey: (
+    key: string,
+    getTargetElement: undefined,
+    options: { align: "top"; signal: AbortSignal },
+  ) => Promise<void>
 }
 
-type NativeHistoryLoader = (
-  conversationId: string,
-  options: {
-    includeMessageId: string
-    forceNetworkFetch: boolean
-    signal: AbortSignal
-    shouldApplyResponse: () => boolean
-    onConversationAppliedFromNetwork: () => void
-  },
-) => Promise<unknown>
-
-export async function loadQuestionHistory(
-  messageId: string,
-  signal: AbortSignal,
-): Promise<boolean> {
-  const pathname = location.pathname
-  const conversationId = pathname.match(/\/c\/([^/]+)\/?$/)?.[1]
-  // Preload links can disappear after SPA navigation. The route manifest keeps
-  // the current module URL even after its link and resource timing entry are gone.
-  const imports = (
-    window as Window & {
-      __reactRouterManifest?: { routes?: Record<string, { imports?: unknown }> }
-    }
-  ).__reactRouterManifest?.routes?.["routes/_conversation"]?.imports
-  if (!conversationId || !Array.isArray(imports)) return false
-  const modulePath = imports.find(
-    (path): path is string =>
-      typeof path === "string" && /^\/cdn\/assets\/conversation-small-[\w-]+\.js$/.test(path),
-  )
-  if (!modulePath) return false
-  // Only import a same-origin asset; identify its loader by the option contract,
-  // never by a bundled hash or minified export name.
-  const exports: Record<string, unknown> = await import(
-    /* @vite-ignore */ new URL(modulePath, location.origin).href
-  )
-  signal.throwIfAborted()
-  const loaders = Object.values(exports).filter((value): value is NativeHistoryLoader => {
-    if (typeof value !== "function") return false
-    const source = Function.prototype.toString.call(value)
-    return (
-      source.startsWith("async function") &&
-      [
-        "includeMessageId",
-        "forceNetworkFetch",
-        "shouldApplyResponse",
-        "onConversationAppliedFromNetwork",
-      ].every((field) => new RegExp(`\\b${field}\\s*:`).test(source))
-    )
-  })
-  if (loaders.length !== 1) return false
-  const isCurrent = () => !signal.aborted && location.pathname === pathname
-  if (!isCurrent()) return false
-  // The host owns parsing, branch state and pagination cursors. Never inject our
-  // Query cache into its store. Late responses must not replace a newer target.
-  let applied = false
-  await loaders[0]!(conversationId, {
-    includeMessageId: messageId,
-    forceNetworkFetch: true,
-    signal,
-    shouldApplyResponse: isCurrent,
-    onConversationAppliedFromNetwork: () => {
-      applied = true
-    },
-  })
-  signal.throwIfAborted()
-  if (!isCurrent()) return false
-  if (!applied) throw new Error("Native history response was not applied")
-  return true
-}
-
-export function revealQuestion(messageId: string): boolean {
-  const element =
-    document.querySelector<HTMLElement>(
-      `main [data-turn-id-container="${CSS.escape(messageId)}"]`,
-    ) ?? document.querySelector<HTMLElement>("main [data-turn-id-container]")
-  // The callback belongs to the conversation, not the target turn. An existing
-  // turn can expose it before the requested turn has a placeholder.
-  if (!element) return false
-  const key = Object.keys(element).find((key) => key.startsWith("__reactFiber$"))
-  if (!key) return false
-  let fiber = (element as unknown as Record<string, Fiber>)[key]
-  const callbacks = new Set<(turnId: string, messageId: string) => void>()
-  const finishCallbacks = new Set<(requestId: number) => void>()
-  const refs: { current: unknown }[] = []
-  let flushSync: ((callback: () => void) => void) | undefined
-  for (; fiber; fiber = fiber.return) {
-    const props = fiber.memoizedProps
-    if (typeof props?.flushSync === "function") {
-      flushSync = props.flushSync as typeof flushSync
-    }
-    if (
-      !props?.conversation ||
-      !("scrollContainerRef" in props) ||
-      !("enableTableOfContents" in props)
-    )
-      continue
-    for (let hook = fiber.memoizedState; hook; hook = hook.next) {
-      const value = hook.memoizedState
-      if (value && typeof value === "object" && "current" in value) refs.push(value)
-    }
-    for (const value of fiber.updateQueue?.memoCache?.data?.flat() ?? []) {
-      if (typeof value !== "function") continue
-      const source = Function.prototype.toString.call(value)
-      if (
-        value.length === 1 &&
-        source.includes(".requestId===") &&
-        source.includes(".current=null") &&
-        !source.includes("turnId")
-      ) {
-        finishCallbacks.add(value as (requestId: number) => void)
-      }
-      if (
-        value.length === 2 &&
-        ["messageId", "turnId", "requestId"].every((field) =>
-          new RegExp(`\\b${field}\\s*:`).test(source),
+function findNavigation(): NativeNavigation | undefined {
+  const seen = new Set<Fiber>()
+  for (const element of document.querySelectorAll("main *")) {
+    const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"))
+    let fiber = key ? (element as unknown as Record<string, Fiber>)[key] : undefined
+    for (; fiber && !seen.has(fiber); fiber = fiber.return) {
+      seen.add(fiber)
+      for (let hook = fiber.memoizedState; hook; hook = hook.next) {
+        const value = hook.memoizedState
+        if (
+          value &&
+          typeof value === "object" &&
+          "getEntryGeometry" in value &&
+          typeof value.getEntryGeometry === "function" &&
+          "scrollToKey" in value &&
+          typeof value.scrollToKey === "function"
         )
-      ) {
-        callbacks.add(value as (turnId: string, messageId: string) => void)
+          return value as NativeNavigation
       }
     }
   }
-  if (callbacks.size !== 1 || finishCallbacks.size !== 1 || !flushSync) return false
-  const callback = [...callbacks][0]!
-  // Commit the reveal immediately, including when background React work is
-  // throttled. No private state is overwritten and the host owns rendering.
-  flushSync(() => callback(messageId, messageId))
-  const ref = refs.find((ref) => {
-    const value = ref.current
-    return (
-      value &&
-      typeof value === "object" &&
-      "messageId" in value &&
-      value.messageId === messageId &&
-      "requestId" in value &&
-      typeof value.requestId === "number"
-    )
-  })
-  if (!ref) return false
-  const request = ref.current as { requestId: number }
-  const finish = [...finishCallbacks][0]!
-  const commit = flushSync
-  nativeNavigation = {
-    messageId,
-    pending: () => ref.current === request,
-    cancel: () => {
-      if (ref.current === request) commit(() => finish(request.requestId))
-    },
+}
+
+export async function revealQuestion(messageId: string, signal: AbortSignal): Promise<boolean> {
+  signal.throwIfAborted()
+  const snapshot = getConversationContextSnapshot()
+  let navigation = findNavigation()
+  if (!navigation) return false
+  if (!navigation.getEntryGeometry(messageId)) {
+    const [userId, conversationId] = JSON.parse(snapshot) as [string | null, string | null]
+    if (!userId || !conversationId) return false
+    console.debug("[chatgpt-history-navigator] Loading history for navigation:", { messageId })
+    if (!(await ensureNativeHistory(userId, conversationId, signal))) return false
+    // Let the host commit the loaded entries before reading its virtual-list API.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    signal.throwIfAborted()
+    if (getConversationContextSnapshot() !== snapshot)
+      throw new DOMException("Conversation changed", "AbortError")
+    navigation = findNavigation()
+    if (!navigation?.getEntryGeometry(messageId)) return false
   }
+  await navigation.scrollToKey(messageId, undefined, { align: "top", signal })
+  signal.throwIfAborted()
+  if (getConversationContextSnapshot() !== snapshot)
+    throw new DOMException("Conversation changed", "AbortError")
   return true
 }
 

@@ -1,11 +1,6 @@
 import { z } from "zod"
 import type { ContentScriptContext } from "wxt/utils/content-script-context"
-import {
-  tryRevealQuestion,
-  requestQuestionHistory,
-  isNativeNavigationPending,
-  cancelNativeNavigation,
-} from "./bridge"
+import { tryRevealQuestion } from "./bridge"
 
 const pageChangeEvent = "chatgpt-history-navigator:pagechange"
 
@@ -43,191 +38,129 @@ export function hideNativeTimeline(): () => void {
 }
 
 // DOM is used only for navigation and reading position; content stays in the API cache.
-export async function scrollToQuestion(messageId: string, signal: AbortSignal): Promise<void> {
+export async function scrollToQuestion(
+  messageId: string,
+  questionIds: readonly string[],
+  signal: AbortSignal,
+): Promise<void> {
   signal.throwIfAborted()
-  const id = CSS.escape(messageId)
-  const path = location.pathname
+  const snapshot = getConversationContextSnapshot()
   const startedAt = performance.now()
   console.debug("[chatgpt-history-navigator] Navigation started:", { messageId })
   await new Promise<void>((resolve, reject) => {
+    const controller = new AbortController()
+    let frame = 0
     let stopped = false
-    let timer: ReturnType<typeof setTimeout>
-    let nativeAttempted = false
-    let nativeAccepted = false
-    let root: HTMLElement | null = null
-    let observedMain: HTMLElement | null = null
-    let historyLoad: "idle" | "pending" | "complete" = "idle"
-    const historyController = new AbortController()
-    const mutations = new MutationObserver(() => schedule(0))
-    const resize = new ResizeObserver(() => schedule(0))
+    let direction = -1
+    const mutations = new MutationObserver(schedule)
+    const resize = new ResizeObserver(schedule)
+    const root = document.querySelector<HTMLElement>("main [data-app-action-timeline-scroll]")
+    if (!root) {
+      reject(new Error("Conversation scroll container unavailable"))
+      return
+    }
     const cleanup = () => {
       stopped = true
-      historyController.abort()
-      const nativePending = nativeAccepted && isNativeNavigationPending(messageId)
-      cancelNativeNavigation(messageId)
-      if (nativePending && root) {
-        root.scrollTo({ top: root.scrollTop, left: root.scrollLeft, behavior: "instant" })
-      }
-      clearTimeout(timer)
+      controller.abort()
+      cancelAnimationFrame(frame)
       mutations.disconnect()
       resize.disconnect()
       signal.removeEventListener("abort", abort)
-      document.removeEventListener("wheel", onManualScroll, true)
-      document.removeEventListener("touchstart", onManualScroll, true)
-      document.removeEventListener("pointerdown", onPointerDown, true)
-      document.removeEventListener("keydown", onKeyDown, true)
+      window.removeEventListener(pageChangeEvent, conversationChanged)
+      document.removeEventListener("wheel", manual, true)
+      document.removeEventListener("touchstart", manual, true)
+      document.removeEventListener("pointerdown", manual, true)
+      document.removeEventListener("keydown", keyboard, true)
     }
     const abort = () => {
-      console.debug("[chatgpt-history-navigator] Navigation cancelled:", {
-        messageId,
-        reason: "aborted",
-      })
       cleanup()
       reject(signal.reason)
     }
-    const cancel = (reason: string) => {
-      console.debug("[chatgpt-history-navigator] Navigation cancelled:", { messageId, reason })
+    const cancel = () => {
+      console.debug("[chatgpt-history-navigator] Navigation cancelled:", { messageId })
       cleanup()
       resolve()
     }
-    const fail = (error: unknown) => {
-      cleanup()
-      reject(error)
+    const conversationChanged = () => {
+      if (getConversationContextSnapshot() !== snapshot) cancel()
     }
-    const onManualScroll = (event: Event) => {
-      if (root && event.composedPath().includes(root)) cancel("manual-scroll")
+    const manual = (event: Event) => {
+      if (event.composedPath().includes(root)) cancel()
     }
-    const onPointerDown = (event: PointerEvent) => {
-      // Clicking/dragging the conversation, including its scrollbar, takes over.
-      if (root && event.composedPath().includes(root)) cancel("pointer")
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" && (!root || !event.composedPath().includes(root))) return
+    const keyboard = (event: KeyboardEvent) => {
       if (
-        ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", "Escape", " "].includes(
-          event.key,
-        )
+        event.key === "Escape" ||
+        (event.composedPath().includes(root) &&
+          ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key))
       )
-        cancel("keyboard")
+        cancel()
     }
-    function schedule(delay: number) {
-      if (stopped) return
-      clearTimeout(timer)
-      timer = setTimeout(advance, delay)
-    }
-    function finish() {
+    const finish = (source: string) => {
       console.debug("[chatgpt-history-navigator] Navigation completed:", {
         messageId,
+        source,
         elapsedMs: Math.round(performance.now() - startedAt),
       })
       cleanup()
       resolve()
     }
+    function schedule() {
+      if (!stopped && !frame) frame = requestAnimationFrame(advance)
+    }
     function advance() {
+      frame = 0
       if (stopped) return
-      if (location.pathname !== path) {
-        cancel("conversation-changed")
+      if (getConversationContextSnapshot() !== snapshot) return cancel()
+      if (!root!.isConnected) {
+        cleanup()
+        reject(new Error("Conversation scroll container removed"))
         return
       }
-      const main = document.querySelector<HTMLElement>("main")
-      root = main
-      while (root && !/^(auto|scroll)$/.test(getComputedStyle(root).overflowY))
-        root = root.parentElement
-      if (main !== observedMain) {
-        mutations.disconnect()
-        resize.disconnect()
-        observedMain = main
-        if (main) {
-          mutations.observe(main, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ["data-message-id", "data-turn-id-container"],
-          })
-          resize.observe(main)
-        }
+      const target = root!.querySelector<HTMLElement>(`[data-turn-key="${CSS.escape(messageId)}"]`)
+      if (target) {
+        target.scrollIntoView({ block: "start", behavior: "instant" })
+        finish("dom")
+        return
       }
-      if (main && root) {
-        const placeholder = main.querySelector<HTMLElement>(`[data-turn-id-container="${id}"]`)
-        if (!placeholder && historyLoad === "idle") {
-          historyLoad = "pending"
-          console.debug("[chatgpt-history-navigator] Loading history for navigation:", {
-            messageId,
-          })
-          void requestQuestionHistory(messageId, historyController.signal)
-            .then((loaded) => {
-              if (stopped) return
-              if (!loaded) {
-                fail(new Error("Native targeted history loading is unavailable"))
-                return
-              }
-              historyLoad = "complete"
-              console.debug("[chatgpt-history-navigator] Navigation history ready:", { messageId })
-              schedule(0)
-            })
-            .catch((error) => {
-              if (stopped) return
-              fail(error)
-            })
-        }
-        // Let the native targeted request finish without competing pagination
-        // or jumping to the top while the reader is waiting.
-        if (historyLoad === "pending") {
-          schedule(1000)
-          return
-        }
-        if (!nativeAttempted && (placeholder || historyLoad === "complete")) {
-          nativeAttempted = true
-          // Also replace the native target when it was already mounted: an old
-          // host navigation must not keep aligning an earlier question.
-          nativeAccepted = tryRevealQuestion(messageId)
-        }
-        // Observe the host's request lifecycle, not an arbitrary wait deadline.
-        // Its own completion/expiry hands control back without failing our jump.
-        if (nativeAccepted && isNativeNavigationPending(messageId)) {
-          schedule(100)
-          return
-        }
-        const message = main.querySelector<HTMLElement>(`[data-message-id="${id}"]`)
-        if (message) {
-          const bounds = message.getBoundingClientRect()
-          const visibleArea = root.getBoundingClientRect()
-          if (
-            nativeAccepted &&
-            bounds.bottom > visibleArea.top &&
-            bounds.top < visibleArea.bottom
-          ) {
-            finish()
-            return
-          }
-          const turn = message.closest<HTMLElement>("[data-turn-id]") ?? message
-          turn.scrollIntoView({ block: "start", behavior: "instant" })
-          const rect = message.getBoundingClientRect()
-          const viewport = root.getBoundingClientRect()
-          // Instant scrolling is synchronous. Do not wait for rAF, which can be
-          // suspended in hidden tabs even after the target has been positioned.
-          if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
-            finish()
-            return
-          }
-        } else if (placeholder) {
-          const rect = placeholder.getBoundingClientRect()
-          const viewport = root.getBoundingClientRect()
-          if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) {
-            placeholder.scrollIntoView({ block: "center", behavior: "instant" })
-          }
-        }
-      }
-      // DOM/size changes advance immediately. This check also discovers replaced
-      // containers and delayed mounts without paginating unrelated history.
-      schedule(1000)
+      const targetIndex = questionIds.indexOf(messageId)
+      const mounted = [...root!.querySelectorAll<HTMLElement>("[data-turn-key]")]
+        .map((turn) => questionIds.indexOf(turn.dataset.turnKey!))
+        .filter((index) => index >= 0)
+      // No timeout or retry budget: at a boundary, wait for host content changes
+      // or user cancellation. An absent target may remain pending.
+      if (mounted.length) direction = targetIndex > Math.max(...mounted) ? 1 : -1
+      const before = root!.scrollTop
+      root!.scrollBy({ top: direction * root!.clientHeight * 0.75, behavior: "instant" })
+      if (root!.scrollTop !== before) schedule()
     }
     signal.addEventListener("abort", abort, { once: true })
-    document.addEventListener("wheel", onManualScroll, { capture: true, passive: true })
-    document.addEventListener("touchstart", onManualScroll, { capture: true, passive: true })
-    document.addEventListener("pointerdown", onPointerDown, true)
-    document.addEventListener("keydown", onKeyDown, true)
-    advance()
+    window.addEventListener(pageChangeEvent, conversationChanged)
+    document.addEventListener("wheel", manual, { capture: true, passive: true })
+    document.addEventListener("touchstart", manual, { capture: true, passive: true })
+    document.addEventListener("pointerdown", manual, true)
+    document.addEventListener("keydown", keyboard, true)
+    void (async () => {
+      try {
+        if (await tryRevealQuestion(messageId, controller.signal)) {
+          if (!stopped) finish("native")
+          return
+        }
+      } catch (error) {
+        if (stopped) return
+        console.warn("[chatgpt-history-navigator] Falling back to DOM navigation:", error)
+      }
+      if (stopped) return
+      console.info("[chatgpt-history-navigator] Using DOM navigation:", { messageId })
+      mutations.observe(root, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-turn-key"],
+      })
+      resize.observe(root)
+      if (root.firstElementChild) resize.observe(root.firstElementChild)
+      advance()
+    })()
   })
 }
 
