@@ -5,10 +5,10 @@ import { tryRevealQuestion } from "./bridge"
 const pageChangeEvent = "chatgpt-history-navigator:pagechange"
 
 export function observeComposerOffset(onChange: (bottom: number) => void): () => void {
-  let composer: HTMLFormElement | null = null
+  let composer: HTMLElement | null = null
   const resize = new ResizeObserver(update)
   function update() {
-    const next = document.querySelector("#prompt-textarea")?.closest("form") ?? null
+    const next = document.querySelector<HTMLElement>("main [data-chatgpt-composer]")
     if (next !== composer) {
       resize.disconnect()
       composer = next
