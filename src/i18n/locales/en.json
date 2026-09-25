@@ -9,7 +9,6 @@
     "preview": {
       "responsesRegionLabel": "Assistant responses",
       "tableRegionLabel": "Table",
-      "sourceFallbackLabel": "Source",
       "imageFallbackLabel": "Image attachment"
     },
     "errors": {

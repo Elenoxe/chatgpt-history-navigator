@@ -9,7 +9,6 @@
     "preview": {
       "responsesRegionLabel": "アシスタントの回答",
       "tableRegionLabel": "表",
-      "sourceFallbackLabel": "出典",
       "imageFallbackLabel": "添付画像"
     },
     "errors": {

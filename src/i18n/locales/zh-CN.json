@@ -9,7 +9,6 @@
     "preview": {
       "responsesRegionLabel": "助手回复",
       "tableRegionLabel": "表格",
-      "sourceFallbackLabel": "来源",
       "imageFallbackLabel": "图片附件"
     },
     "errors": {

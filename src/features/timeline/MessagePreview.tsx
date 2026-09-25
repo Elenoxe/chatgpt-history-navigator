@@ -19,7 +19,6 @@ import type { ConversationMessage } from "@/platform/chatgpt/conversation"
 import { getPreviewContent, getWritingReferences, previewUrl } from "./previewContent"
 import { ScrollFade } from "./ScrollFade"
 import { PreviewFile } from "./PreviewFile"
-import { PreviewReference } from "./PreviewReference"
 import "katex/dist/katex.min.css"
 
 // Only these parser-owned fields are needed to adapt ChatGPT's directives.
@@ -48,10 +47,10 @@ function previewDirectives() {
             "data-writing-title": node.attributes?.title || node.attributes?.subject,
           },
         }
-      } else if (node.type === "textDirective" && node.name === "previewReference") {
+      } else if (node.type === "textDirective" && node.name === "previewMention") {
         node.data = {
           hName: "span",
-          hProperties: { "data-preview-reference": node.children?.[0]?.value },
+          hProperties: { "data-preview-mention": node.children?.[0]?.value },
         }
       } else if (node.type.endsWith("Directive")) {
         // Unknown directives remain readable rather than silently dropping their syntax/content.
@@ -128,15 +127,6 @@ function WritingSection({ node, children }: React.ComponentProps<"section"> & Ex
     ]
   const contentReferences =
     content === undefined ? [] : getWritingReferences(message, content, references)
-  const memoryReferences = Array.isArray(message.metadata.conversation_context_citation_metadata)
-    ? message.metadata.conversation_context_citation_metadata.filter(
-        (item) =>
-          item &&
-          typeof item === "object" &&
-          typeof item.citation_uuid === "string" &&
-          contentReferences.some((reference) => reference.citation_uuid === item.citation_uuid),
-      )
-    : []
   return (
     <section className="preview-writing">
       {typeof heading === "string" && heading && (
@@ -150,7 +140,6 @@ function WritingSection({ node, children }: React.ComponentProps<"section"> & Ex
             content: { content_type: "text", parts: [content] },
             metadata: {
               content_references: contentReferences,
-              conversation_context_citation_metadata: memoryReferences,
             },
           }}
         />
@@ -213,39 +202,20 @@ const components: Components = {
         key={src}
         target={target}
         name={alt || t("timeline.preview.imageFallbackLabel")}
-        image
       />
     ) : title || !src ? (
       <span>{alt}</span>
     ) : (
-      <PreviewFile
-        key={src}
-        src={src}
-        name={alt || t("timeline.preview.imageFallbackLabel")}
-        image
-      />
+      <PreviewFile key={src} src={src} name={alt || t("timeline.preview.imageFallbackLabel")} />
     )
   },
   span: ({ node, children, ...props }) => {
-    const { title, message, preview } = useContext(MarkdownContext)!
-    const index = node?.properties["data-preview-reference"]
-    const reference = index === undefined ? undefined : preview.references[Number(index)]
-    if (!title && reference?.kind === "source")
-      return (
-        <PreviewReference key={`${message.id}:${reference.citationUuid ?? index}`} {...reference} />
-      )
-    return reference ? (
-      <span className={`preview-${reference.kind}`} title={reference.label}>
-        {!title && reference.links.length
-          ? reference.links.map((link, index) => (
-              <span key={link.href}>
-                {index > 0 && " · "}
-                <a href={link.href} target="_blank" rel="noopener noreferrer">
-                  {link.label}
-                </a>
-              </span>
-            ))
-          : reference.label}
+    const { preview } = useContext(MarkdownContext)!
+    const index = node?.properties["data-preview-mention"]
+    const mention = index === undefined ? undefined : preview.mentions[Number(index)]
+    return mention !== undefined ? (
+      <span className="preview-mention" title={mention}>
+        {mention}
       </span>
     ) : (
       <span {...props}>{children}</span>
@@ -292,12 +262,7 @@ export function MessagePreview({
 }) {
   const { t } = useTranslation()
   const preview = useMemo(
-    () =>
-      getPreviewContent(
-        message,
-        t("timeline.preview.sourceFallbackLabel"),
-        t("timeline.preview.imageFallbackLabel"),
-      ),
+    () => getPreviewContent(message, t("timeline.preview.imageFallbackLabel")),
     [message, t],
   )
   const remarkPlugins: Options["remarkPlugins"] = [
@@ -328,11 +293,6 @@ export function MessagePreview({
       </Markdown>
       {!title && (
         <>
-          {preview.references
-            .filter((reference) => reference.inline === false)
-            .map((reference, index) => (
-              <PreviewReference key={reference.citationUuid ?? index} {...reference} />
-            ))}
           {preview.media.map((media, index) =>
             media.src ? (
               <PreviewFile
