@@ -11,6 +11,7 @@ export default function Timeline() {
   const timeline = useTimeline()
   const isVisible = !!timeline.conversationId && timeline.questions.length > 0
   const trackRef = useRef<HTMLDivElement>(null)
+  const compensatedScrollTop = useRef<number | null>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const keepPreview = () => clearTimeout(closeTimer.current)
@@ -22,6 +23,8 @@ export default function Timeline() {
     tops: Map<string, number>
     bottom: boolean
     overflow: boolean
+    top: number
+    bottomEdge: number
   } | null>(null)
   const [preview, setPreview] = useState<{
     id: string
@@ -33,6 +36,7 @@ export default function Timeline() {
     setPreview(null)
     followedQuestion.current = null
     interactingWithTrack.current = false
+    compensatedScrollTop.current = null
   }, [timeline.conversationId])
   const question =
     preview?.conversationId === timeline.conversationId
@@ -77,19 +81,21 @@ export default function Timeline() {
       const appended =
         ticks.length > ids.length &&
         ids.every((id, index) => ticks[index]?.dataset.questionId === id)
-      if (previous.overflow) {
+      const scrollTop = track.scrollTop
+      if (previous.overflow || track.scrollHeight > track.clientHeight) {
         if (appended && previous.bottom) track.scrollTop = track.scrollHeight
         else {
-          const bounds = track.getBoundingClientRect()
           const anchor = ticks.find((tick) => {
             const top = previous.tops.get(tick.dataset.questionId!)
-            return top !== undefined && top >= bounds.top && top < bounds.bottom
+            return top !== undefined && top >= previous.top && top < previous.bottomEdge
           })
           if (anchor)
             track.scrollTop +=
               anchor.getBoundingClientRect().top - previous.tops.get(anchor.dataset.questionId!)!
         }
-      } else if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      }
+      if (track.scrollTop !== scrollTop) compensatedScrollTop.current = track.scrollTop
+      if (!previous.overflow && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
         const duration = parseFloat(
           getComputedStyle(track).getPropertyValue("--timeline-animation-duration"),
         )
@@ -116,7 +122,8 @@ export default function Timeline() {
       }
     }
     const remember = () => {
-      const top = track.getBoundingClientRect().top
+      const bounds = track.getBoundingClientRect()
+      const top = bounds.top
       layout.current = {
         conversationId: timeline.conversationId,
         tops: new Map(
@@ -124,6 +131,8 @@ export default function Timeline() {
         ),
         bottom: track.scrollHeight - track.clientHeight - track.scrollTop <= 1,
         overflow: track.scrollHeight > track.clientHeight,
+        top,
+        bottomEdge: bounds.bottom,
       }
     }
     remember()
@@ -246,7 +255,21 @@ export default function Timeline() {
         <div
           className="timeline-track"
           ref={trackRef}
-          onScroll={closePreview}
+          onScroll={(event) => {
+            const compensated = compensatedScrollTop.current
+            compensatedScrollTop.current = null
+            if (compensated === null || Math.abs(event.currentTarget.scrollTop - compensated) > 1)
+              closePreview()
+          }}
+          onWheel={() => {
+            compensatedScrollTop.current = null
+          }}
+          onPointerDown={() => {
+            compensatedScrollTop.current = null
+          }}
+          onKeyDown={() => {
+            compensatedScrollTop.current = null
+          }}
           onPointerEnter={() => {
             interactingWithTrack.current = true
           }}
