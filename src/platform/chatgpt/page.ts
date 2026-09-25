@@ -289,7 +289,9 @@ export function observeVisibleQuestions(
     intersection.disconnect()
   }
 }
-const identitySchema = z.object({ user: z.object({ id: z.string().min(1) }) })
+const identitySchema = z.object({
+  session: z.object({ user: z.object({ id: z.string().min(1) }) }),
+})
 let cachedBootstrapText: string | null | undefined
 let userId: string | null = null
 
@@ -301,7 +303,7 @@ export function getConversationContextSnapshot(): string {
     if (text) {
       try {
         const parsed = identitySchema.safeParse(JSON.parse(text), { jitless: true })
-        if (parsed.success) userId = parsed.data.user.id
+        if (parsed.success) userId = parsed.data.session.user.id
       } catch {
         /* An unreadable identity must not reuse another user's cache. */
       }
