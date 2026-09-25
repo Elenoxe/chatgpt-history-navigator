@@ -70,6 +70,7 @@ type Loader = (signal: AbortSignal) => Promise<void>
 
 function findLoader(conversationId: string): Loader | null | undefined {
   const seen = new Set<Fiber>()
+  const conversationIds = new Set([conversationId])
   const loaders = new Set<Loader>()
   let ready = false
   // The conversation component exists before its first message DOM node.
@@ -79,26 +80,36 @@ function findLoader(conversationId: string): Loader | null | undefined {
     for (; fiber && !seen.has(fiber); fiber = fiber.return) {
       seen.add(fiber)
       const props = fiber.memoizedProps
+      // A saved branch keeps its local ID in the mounted conversation component.
       if (
-        props?.conversationId !== conversationId ||
-        props.composerConversationId !== conversationId ||
-        !Array.isArray(props.entries)
+        props?.serverConversationId === conversationId &&
+        typeof props.conversationId === "string"
       )
-        continue
-      ready = true
-      for (const value of fiber.updateQueue?.memoCache?.data?.flat() ?? []) {
-        if (typeof value !== "function") continue
-        // Match the one-signal callback's store lookup and awaited loader call.
-        // No bundle name, minified identifier or memo slot is fixed. A changed
-        // contract is unavailable, never a reason to invoke an arbitrary callback.
-        const source = Function.prototype.toString.call(value)
-        if (
-          /^async\s+([\w$]+)=>\{let\s+([\w$]+)=([\w$]+)\.get\([^;]+\);[^;{}]*\.get\([^;]+\)>0&&await\s+\(0,[\w$]+\.[\w$]+\)\(\3,\2,\1\)\}$/.test(
-            source,
-          )
+        conversationIds.add(props.conversationId)
+    }
+  }
+  for (const fiber of seen) {
+    const props = fiber.memoizedProps
+    if (
+      typeof props?.conversationId !== "string" ||
+      !conversationIds.has(props.conversationId) ||
+      props.composerConversationId !== props.conversationId ||
+      !Array.isArray(props.entries)
+    )
+      continue
+    ready = true
+    for (const value of fiber.updateQueue?.memoCache?.data?.flat() ?? []) {
+      if (typeof value !== "function") continue
+      // Match the one-signal callback's store lookup and awaited loader call.
+      // No bundle name, minified identifier or memo slot is fixed. A changed
+      // contract is unavailable, never a reason to invoke an arbitrary callback.
+      const source = Function.prototype.toString.call(value)
+      if (
+        /^async\s+([\w$]+)=>\{let\s+([\w$]+)=([\w$]+)\.get\([^;]+\);[^;{}]*\.get\([^;]+\)>0&&await\s+\(0,[\w$]+\.[\w$]+\)\(\3,\2,\1\)\}$/.test(
+          source,
         )
-          loaders.add(value as Loader)
-      }
+      )
+        loaders.add(value as Loader)
     }
   }
   return loaders.size === 1 ? [...loaders][0]! : ready ? null : undefined

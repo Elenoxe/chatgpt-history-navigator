@@ -6,6 +6,7 @@ import {
 } from "@/platform/chatgpt/api"
 import {
   ConversationDataError,
+  mergeConversationHistory,
   mergeConversationPages,
   mergeStreamMessages,
   type ConversationHistory,
@@ -263,7 +264,14 @@ export function startCapturedHistorySync(client: QueryClient) {
       void client.cancelQueries({ queryKey, exact: true })
     }
     if (history.isHistoryComplete || !state?.data?.isHistoryComplete) {
-      client.setQueryData(queryKey, applyWritingUpdates(history, load, snapshotStartedAt))
+      client.setQueryData(
+        queryKey,
+        applyWritingUpdates(
+          mergeConversationHistory(state?.data, history),
+          load,
+          snapshotStartedAt,
+        ),
+      )
     }
     if (history.isHistoryComplete) clearPages()
     else if (!load.nativeLoading && (supersedesActiveLoad || state?.fetchStatus !== "fetching")) {
@@ -342,6 +350,7 @@ export function getTimelineQueryOptions(
         load.acceptedSnapshotStartedAt = requestStartedAt
         return client.setQueryData<ConversationHistory>(queryKey, (current) => {
           if (current?.isHistoryComplete && !history.isHistoryComplete) return current
+          history = mergeConversationHistory(current, history)
           if (current && (startedDuringGeneration || current.isGenerating)) {
             return applyWritingUpdates(
               mergeStreamMessages(

@@ -350,7 +350,9 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
         performance.timeOrigin + performance.now(),
         request.parent_message_id,
       )
-      if (request.action === "next")
+      // New branches stream inherited inputs before the submitted message.
+      // Wait for that order instead of inserting the newest message first.
+      if (request.action === "next" && request.conversation_id)
         for (const message of request.messages)
           session.addMessage({
             ...message,

@@ -224,7 +224,7 @@ export function parsePreviewReference(
                   previewUrl(item.internalHref) ||
                   previewUrl(item.url)
                 )
-              ? id.startsWith("file-")
+              ? /^file[-_]/.test(id)
                 ? { fileId: id }
                 : { libraryId: id }
               : undefined

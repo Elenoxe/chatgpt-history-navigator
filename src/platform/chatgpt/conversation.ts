@@ -159,6 +159,29 @@ export function mergeStreamMessages(
   }
 }
 
+export function mergeConversationHistory(
+  current: ConversationHistory | undefined,
+  history: ConversationHistory,
+): ConversationHistory {
+  if (!current || history.isHistoryComplete) return history
+  const firstId = history.nodes[0]?.messageId
+  const index = firstId ? current.nodes.findIndex((node) => node.messageId === firstId) : -1
+  if (index <= 0) return history
+  // A stable shared message identifies the same ancestors, even after an edit
+  // replaces its descendants. Keep that prefix and take the new active suffix.
+  const prefix = current.nodes.slice(0, index)
+  const prefixIds = new Set(prefix.map((node) => node.messageId))
+  return {
+    ...history,
+    nodes: [...prefix, ...history.nodes],
+    messages: [
+      ...current.messages.filter((message) => prefixIds.has(message.id)),
+      ...history.messages,
+    ],
+    missingNodeId: current.missingNodeId,
+  }
+}
+
 const conversationInfoSchema = z.object({
   conversation_id: idSchema,
   title: z.string(),
