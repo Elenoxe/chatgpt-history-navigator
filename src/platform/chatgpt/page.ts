@@ -263,9 +263,10 @@ export function observeVisibleQuestions(
   const reconcile = () => {
     frame = 0
     const next = new Map<Element, string>()
-    for (const message of document.querySelectorAll<HTMLElement>("main [data-message-id]")) {
-      const id = questionByMessageId.get(message.dataset.messageId!)
-      if (id) next.set(message.closest("[data-turn-id]") ?? message, id)
+    // The host's virtualized turn includes both the prompt and its replies.
+    for (const turn of document.querySelectorAll<HTMLElement>("main [data-turn-key]")) {
+      const id = questionByMessageId.get(turn.dataset.turnKey!)
+      if (id) next.set(turn, id)
     }
     for (const element of targets.keys()) {
       if (next.has(element)) continue
@@ -286,7 +287,7 @@ export function observeVisibleQuestions(
         [...record.addedNodes, ...record.removedNodes].some(
           (node) =>
             node instanceof Element &&
-            (node.matches("[data-message-id]") || node.querySelector("[data-message-id]")),
+            (node.matches("[data-turn-key]") || node.querySelector("[data-turn-key]")),
         ),
     )
     if (relevant && !frame) frame = requestAnimationFrame(reconcile)
@@ -295,7 +296,7 @@ export function observeVisibleQuestions(
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["data-message-id"],
+    attributeFilter: ["data-turn-key"],
   })
   reconcile()
   return () => {
