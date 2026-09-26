@@ -18,6 +18,8 @@ stats-*.json
 .agents/
 .codex/
 web-ext.config.ts
+.chatgpt-compat/
+tests/chatgpt/config.local.json
 
 # Editor directories and files
 .vscode/*

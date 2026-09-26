@@ -18,7 +18,7 @@ type NativeNavigation = {
   ) => Promise<void>
 }
 
-function findNavigation(): NativeNavigation | undefined {
+export function findNavigation(): NativeNavigation | undefined {
   const seen = new Set<Fiber>()
   for (const element of document.querySelectorAll("main *")) {
     const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"))
@@ -68,7 +68,7 @@ export async function revealQuestion(messageId: string, signal: AbortSignal): Pr
 
 type Loader = (signal: AbortSignal) => Promise<void>
 
-function findLoader(conversationId: string): Loader | null | undefined {
+export function findLoader(conversationId: string): Loader | null | undefined {
   const seen = new Set<Fiber>()
   const conversationIds = new Set([conversationId])
   const loaders = new Set<Loader>()

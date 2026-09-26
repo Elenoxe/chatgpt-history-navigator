@@ -1,0 +1,14 @@
+{
+  "conversationUrl": "https://chatgpt.com/c/REPLACE_WITH_CONVERSATION_UUID",
+  "intervalMs": 3000,
+  "maxRequests": 30,
+  "maxPages": 3,
+  "maxResources": 3,
+  "maxResponseBytes": 8388608,
+  "requestTimeoutMs": 30000,
+  "pageTimeoutMs": 60000,
+  "readyTimeoutMs": 30000,
+  "actionTimeoutMs": 20000,
+  "settleMs": 3000,
+  "suiteTimeoutMs": 900000
+}

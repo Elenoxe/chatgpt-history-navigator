@@ -6,6 +6,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:chatgpt": "node tests/chatgpt/run.mjs",
     "dev": "wxt",
     "dev:edge": "wxt -b edge",
     "dev:firefox": "wxt -b firefox",
@@ -44,10 +45,12 @@
     "zod": "^4.6.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.1.5",
+    "esbuild": "^0.28.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.5.1",
     "oxlint": "^1.83.0",
