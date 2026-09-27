@@ -193,11 +193,15 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
       if (finished) return
       if (conversationId && conversationId !== id)
         throw new ConversationDataError("Stream conversation changed")
+      const firstBinding = !conversationId
       conversationId = id
       const previous = sessions.get(id)
       if (previous && previous !== session) previous.discard()
       sessions.set(id, session)
-      if (messages.size && !timer) timer = setTimeout(() => emit("streaming"), 50)
+      // A new conversation can enter the URL before its first message chunk.
+      // Publish generation immediately so history loading does not race creation.
+      if (firstBinding) emit("streaming")
+      else if (messages.size && !timer) timer = setTimeout(() => emit("streaming"), 50)
     }
     const feed = createMessageStreamParser(addMessage, (control) => {
       if (typeof control.conversation_id === "string")

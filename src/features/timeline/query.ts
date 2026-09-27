@@ -172,7 +172,8 @@ export function startCapturedHistorySync(client: QueryClient) {
           capture.requestStartedAt < load.acceptedSnapshotStartedAt)
       )
         return
-      if (capture.requestStartedAt !== load.streamStartedAt) {
+      const firstCapture = capture.requestStartedAt !== load.streamStartedAt
+      if (firstCapture) {
         load.streamMessageIds.clear()
         load.streamBranchParentId = capture.result.branchParentId
       }
@@ -181,8 +182,12 @@ export function startCapturedHistorySync(client: QueryClient) {
         load.acceptedSnapshotStartedAt,
         capture.requestStartedAt,
       )
+      // URL changes may start a load before the new stream's first capture arrives.
       // Subsequent reply chunks must not cancel a refresh started during generation.
-      if (load.activeLoadStartedAt < capture.requestStartedAt)
+      if (
+        load.activeLoadStartedAt < capture.requestStartedAt ||
+        (firstCapture && capture.result.phase === "streaming")
+      )
         void client.cancelQueries({ queryKey, exact: true })
       const { messages, nodes, phase, branchParentId } = capture.result
       for (const node of nodes) if (node.messageId) load.streamMessageIds.add(node.messageId)
