@@ -184,6 +184,10 @@
   );
   width: min(
     var(--timeline-preview-width),
+    calc(
+      var(--timeline-conversation-width) - 20px - var(--timeline-width) -
+        var(--timeline-preview-gap) - var(--timeline-preview-viewport-margin)
+    ),
     calc(100vw - var(--preview-right) - var(--timeline-preview-viewport-margin))
   );
   max-height: min(

@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react"
+import { observeConversationBounds } from "@/platform/chatgpt/page"
 import { useTranslation } from "react-i18next"
 import { useTimeline } from "./useTimeline"
 import { MessagePreview } from "./MessagePreview"
@@ -9,7 +10,10 @@ import "./timeline.css"
 export default function Timeline() {
   const { t, i18n } = useTranslation()
   const timeline = useTimeline()
-  const isVisible = !!timeline.conversationId && timeline.questions.length > 0
+  const [conversationBounds, setBounds] = useState<DOMRect | null>(null)
+  useLayoutEffect(() => observeConversationBounds(setBounds), [])
+  const isVisible =
+    !!conversationBounds && !!timeline.conversationId && timeline.questions.length > 0
   const trackRef = useRef<HTMLDivElement>(null)
   const compensatedScrollTop = useRef<number | null>(null)
   const previewRef = useRef<HTMLDivElement>(null)
@@ -60,7 +64,7 @@ export default function Timeline() {
     followedQuestion.current = null
     interactingWithTrack.current = false
     compensatedScrollTop.current = null
-  }, [timeline.conversationId])
+  }, [timeline.conversationId, isVisible])
   const question =
     preview?.conversationId === timeline.conversationId
       ? timeline.questions.find((question) => question.id === preview?.id)
@@ -178,7 +182,7 @@ export default function Timeline() {
       track.removeEventListener("scroll", remember)
       window.removeEventListener("resize", remember)
     }
-  }, [questionIds, timeline.conversationId])
+  }, [questionIds, timeline.conversationId, isVisible])
 
   useLayoutEffect(() => {
     const track = trackRef.current
@@ -206,7 +210,7 @@ export default function Timeline() {
             ? "smooth"
             : "instant",
       })
-  }, [timeline.visibleQuestionIds, timeline.conversationId])
+  }, [timeline.visibleQuestionIds, timeline.conversationId, isVisible])
 
   useLayoutEffect(() => {
     const track = trackRef.current
@@ -226,7 +230,7 @@ export default function Timeline() {
       observer.disconnect()
       track.removeEventListener("scroll", updateEdges)
     }
-  }, [timeline.conversationId, timeline.questions])
+  }, [timeline.conversationId, timeline.questions, isVisible])
 
   useLayoutEffect(() => {
     const card = previewRef.current
@@ -271,12 +275,22 @@ export default function Timeline() {
       window.removeEventListener("resize", updatePosition)
       card.removeEventListener("wheel", containWheel)
     }
-  }, [preview, question])
+  }, [preview, question, conversationBounds])
 
-  if (!isVisible) return null
+  if (!isVisible || !conversationBounds) return null
 
   return (
-    <>
+    <div
+      style={
+        {
+          display: "contents",
+          "--timeline-right": `${Math.max(0, window.innerWidth - conversationBounds.right) + 20}px`,
+          "--timeline-top": `${conversationBounds.top + conversationBounds.height / 2}px`,
+          "--timeline-max-height": `min(60dvh, 640px, ${conversationBounds.height}px)`,
+          "--timeline-conversation-width": `${conversationBounds.width}px`,
+        } as CSSProperties
+      }
+    >
       <aside
         key={timeline.conversationId}
         className="timeline"
@@ -388,6 +402,6 @@ export default function Timeline() {
           )}
         </div>
       )}
-    </>
+    </div>
   )
 }

@@ -45,6 +45,89 @@ export function observeComposerOffset(onChange: (bottom: number) => void): () =>
   }
 }
 
+export function observeConversationBounds(onChange: (bounds: DOMRect | null) => void): () => void {
+  let conversation: HTMLElement | null = null
+  let frame = 0
+  let previous = ""
+  const resize = new ResizeObserver(schedule)
+  function update() {
+    frame = 0
+    const next = [
+      ...document.querySelectorAll<HTMLElement>("main [data-app-action-timeline-scroll]"),
+    ].find(
+      (element) =>
+        element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+        !element.closest('[inert], [aria-hidden="true"]') &&
+        element.getBoundingClientRect().width > 0,
+    )
+    if (next !== conversation) {
+      resize.disconnect()
+      conversation = next ?? null
+      if (conversation) resize.observe(conversation)
+    }
+    let bounds = conversation?.getBoundingClientRect() ?? null
+    const viewer = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-app-shell-tab-panel-controller][data-tab-id^="chatgpt-file:"]',
+      ),
+    ].some((element) => {
+      const rect = element.getBoundingClientRect()
+      return element.checkVisibility() && rect.width > 0 && rect.height > 0
+    })
+    if (bounds) {
+      const x = (Math.max(0, bounds.left) + Math.min(window.innerWidth, bounds.right)) / 2
+      const y = (Math.max(0, bounds.top) + Math.min(window.innerHeight, bounds.bottom)) / 2
+      const surface = document
+        .elementsFromPoint(x, y)
+        .find((element) => !element.closest("chatgpt-history-navigator"))
+      if (
+        viewer ||
+        bounds.height <= 0 ||
+        bounds.right <= 0 ||
+        bounds.left >= window.innerWidth ||
+        bounds.bottom <= 0 ||
+        bounds.top >= window.innerHeight ||
+        !surface ||
+        !conversation?.contains(surface)
+      )
+        bounds = null
+    }
+    const key = bounds
+      ? `${bounds.left}:${bounds.right}:${bounds.top}:${bounds.bottom}:${window.innerWidth}`
+      : "hidden"
+    if (key !== previous) {
+      previous = key
+      onChange(bounds)
+    }
+  }
+  function schedule() {
+    if (!frame) frame = requestAnimationFrame(update)
+  }
+  const mutations = new MutationObserver(schedule)
+  mutations.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: [
+      "class",
+      "style",
+      "hidden",
+      "inert",
+      "aria-hidden",
+      "data-tab-id",
+      "data-app-action-timeline-scroll",
+    ],
+  })
+  window.addEventListener("resize", schedule)
+  update()
+  return () => {
+    resize.disconnect()
+    mutations.disconnect()
+    cancelAnimationFrame(frame)
+    window.removeEventListener("resize", schedule)
+  }
+}
+
 export function hideNativeTimeline(): () => void {
   const style = document.createElement("style")
   // Hide the native TOC's fixed wrapper, keeping its React navigation state intact.
