@@ -16,7 +16,12 @@ import rehypeKatex from "rehype-katex"
 import rehypeHighlight from "rehype-highlight"
 import { visit } from "unist-util-visit"
 import type { ConversationMessage } from "@/platform/chatgpt/conversation"
-import { getPreviewContent, getWritingReferences, previewUrl } from "./previewContent"
+import {
+  getPreviewContent,
+  getWritingBlock,
+  getWritingReferences,
+  previewUrl,
+} from "./previewContent"
 import { ScrollFade } from "./ScrollFade"
 import { PreviewFile } from "./PreviewFile"
 import "katex/dist/katex.min.css"
@@ -79,9 +84,7 @@ function WritingSection({ node, children }: React.ComponentProps<"section"> & Ex
   const { message, conversationId, title } = useContext(MarkdownContext)!
   const context = useContext(PreviewContext)
   const id = String(node?.properties["data-writing-id"] ?? "")
-  const blocks = message.metadata.writing_blocks as
-    Record<string, Record<string, unknown>> | undefined
-  const block = blocks?.[id]
+  const block = getWritingBlock(message, id)
   const libraryId = typeof block?.library_file_id === "string" ? block.library_file_id : undefined
   const saved = useQuery<{ fileId: string; version: number; content?: string }>({
     queryKey: ["preview", context.userId, "writing-revision", libraryId],

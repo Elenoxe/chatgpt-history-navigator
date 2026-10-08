@@ -5,9 +5,15 @@ import {
   type HistoryCaptureEvent,
 } from "@/platform/chatgpt/bridge"
 import { revealQuestion, ensureNativeHistory } from "@/platform/chatgpt/runtime"
-import { parseConversation, parseConversationPage } from "@/platform/chatgpt/conversation"
+import {
+  parseApiResponse,
+  parseConversation,
+  parseConversationPage,
+} from "@/platform/chatgpt/conversation"
 import { getConversationContextSnapshot } from "@/platform/chatgpt/page"
 import { installMessageStreamCapture } from "@/platform/chatgpt/stream"
+import { z } from "zod"
+import { writingBlocksSchema } from "@/platform/chatgpt/writing"
 
 export default defineContentScript({
   matches: ["https://chatgpt.com/*"],
@@ -54,6 +60,50 @@ export default defineContentScript({
       try {
         const url = new URL(input instanceof Request ? input.url : String(input), location.href)
         const method = init?.method ?? (input instanceof Request ? input.method : "GET")
+        if (
+          url.origin === location.origin &&
+          method.toUpperCase() === "POST" &&
+          url.pathname === "/backend-api/conversation/message/writing-blocks"
+        ) {
+          const [userId] = JSON.parse(getConversationContextSnapshot())
+          const requestStartedAt = performance.timeOrigin + performance.now()
+          if (userId) {
+            const submitted =
+              typeof init?.body === "string"
+                ? Promise.resolve(init.body)
+                : captureInput instanceof Request
+                  ? captureInput.text()
+                  : Promise.reject(new Error("Unsupported Writing request body"))
+            void Promise.all([responsePromise, submitted])
+              .then(([response, body]) => {
+                if (!response.ok || publisher.isStopped()) return
+                const request = parseApiResponse(
+                  z.object({
+                    conversation_id: z.uuid(),
+                    message_id: z.string().min(1),
+                    id: z.string().min(1),
+                    writing_block: z.unknown(),
+                  }),
+                  JSON.parse(body),
+                )
+                const blocks = parseApiResponse(writingBlocksSchema, {
+                  [request.id]: request.writing_block,
+                })
+                publisher.publish({
+                  userId,
+                  conversationId: request.conversation_id,
+                  requestStartedAt,
+                  result: { kind: "writing", messageId: request.message_id, blocks },
+                })
+              })
+              .catch((error) =>
+                console.warn(
+                  "[chatgpt-history-navigator] Unable to capture Writing update:",
+                  error,
+                ),
+              )
+          }
+        }
         if (
           url.origin === location.origin &&
           ["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase()) &&
@@ -127,10 +177,11 @@ export default defineContentScript({
         }
         if (
           url.origin === location.origin &&
-          method.toUpperCase() === "GET" &&
-          url.pathname.startsWith("/backend-api/")
+          ((method.toUpperCase() === "GET" && url.pathname.startsWith("/backend-api/")) ||
+            (method.toUpperCase() === "POST" &&
+              /^\/backend-api\/(?:f\/)?conversation\/resume$/.test(url.pathname)))
         ) {
-          void messageStreamCapture.captureResume(url, responsePromise)
+          void messageStreamCapture.captureResume(url, captureInput, init, responsePromise)
         }
         const match = url.pathname.match(
           /^\/backend-api\/(conversation|conversations)\/([\da-f-]{36})(\/messages)?$/i,

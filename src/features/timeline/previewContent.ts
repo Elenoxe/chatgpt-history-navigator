@@ -29,6 +29,23 @@ function records(value: unknown) {
   return Array.isArray(value) ? value.map(record) : []
 }
 
+function writingWidget(reference: Record<string, unknown>) {
+  const data = record(reference.data)
+  return reference.type === "client_defined_widget" &&
+    reference.category === "writing_block" &&
+    data.widget_type === "writing_block"
+    ? data
+    : undefined
+}
+
+export function getWritingBlock(message: ConversationMessage, id: string) {
+  const widget = records(message.metadata.content_references)
+    .map(writingWidget)
+    .find((data) => data?.id === id)
+  const saved = record(record(message.metadata.writing_blocks)[id])
+  return { ...widget, ...saved }
+}
+
 function text(value: unknown) {
   return typeof value === "string" ? value : ""
 }
@@ -62,8 +79,8 @@ function partAssetPointer(part: Record<string, unknown>) {
 
 function resolvePartAsset(pointer: string) {
   if (/^https:\/\//i.test(pointer)) return { src: pointer }
-  if (/^file-service:\/\//i.test(pointer))
-    return { fileId: pointer.slice("file-service://".length) }
+  const file = pointer.match(/^(?:file-service|sediment):\/\/(.+)$/i)
+  if (file) return { fileId: file[1]! }
   if (/^file-[^/#?]+$/i.test(pointer)) return { fileId: pointer }
 }
 
@@ -155,32 +172,105 @@ export function previewUrl(value: unknown): string | undefined {
   }
 }
 
-// ChatGPT also emits TeX delimiters. Do not rewrite examples inside code fences or spans.
-function normalizeMath(markdown: string) {
-  const tokens = /^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|\\([([])|^((?: {4}|\t)[^\n]*(?:\n|$))/gm
+function markdownCodeEnd(markdown: string, match: RegExpExecArray) {
+  const end = match.index + match[0].length
+  if (match[3]) return end
+  if (match[1]) {
+    const fence = match[1]
+    const closing = new RegExp(`^ {0,3}(?:> ?)*${fence[0]}{${fence.length},}[ \\t]*(?:\\n|$)`, "gm")
+    closing.lastIndex = end
+    return closing.exec(markdown) ? closing.lastIndex : markdown.length
+  }
+  if (match[2]) {
+    const closing = new RegExp(`(?<!\x60)\x60{${match[2].length}}(?!\x60)`, "g")
+    closing.lastIndex = end
+    return closing.exec(markdown) ? closing.lastIndex : end
+  }
+}
+
+function writingReplacements(source: string, message: ConversationMessage) {
+  const replacements: { start: number; end: number; content: string }[] = []
+  const components = records(message.metadata.genui_components)
+  const widgets = records(message.metadata.content_references).map(writingWidget)
+  const tokens =
+    /^ {0,3}(?:> ?)*(?:(?:[-+*]|\d{1,9}[.)]) +)?(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|^((?:> ?)*(?: {4}|\t)[^\n]*(?:\n|$))|<\/?WritingBlock\b[^>\n]*>/gm
+  let opening: { start: number; end: number; id: string } | undefined
+  for (let match = tokens.exec(source); match; match = tokens.exec(source)) {
+    const codeEnd = markdownCodeEnd(source, match)
+    if (codeEnd !== undefined) {
+      tokens.lastIndex = codeEnd
+      continue
+    }
+    if (match[0] === "</WritingBlock>") {
+      if (!opening) continue
+      const end = tokens.lastIndex
+      const confirmed =
+        components.some(
+          (component) =>
+            component.type === "writing_block" &&
+            component.start_index === opening!.start &&
+            component.end_index === end,
+        ) || widgets.some((widget) => widget?.id === opening!.id)
+      const body = source.slice(opening.end, match.index)
+      if (confirmed) {
+        // A block's own Markdown may contain directive fences.
+        let fence = ":::"
+        for (const marker of body.matchAll(/^ {0,3}(:{3,})/gm))
+          if (marker[1]!.length >= fence.length) fence = ":".repeat(marker[1]!.length + 1)
+        replacements.push({
+          start: opening.start,
+          end,
+          content: `\n${fence}writing{id="${opening.id}"}\n${body}\n${fence}\n`,
+        })
+      } else {
+        // Before component metadata arrives, keep the streamed body readable.
+        replacements.push({ start: opening.start, end: opening.end, content: "" })
+        replacements.push({ start: match.index, end, content: "" })
+      }
+      opening = undefined
+      continue
+    }
+    const attributes = match[0].match(/^<WritingBlock\s+((?:(?:id|variant)="[\w-]+"\s*)+)>$/)
+    if (!attributes) continue
+    const values = [...attributes[1]!.matchAll(/(id|variant)="([\w-]+)"/g)]
+    const id = values.find((value) => value[1] === "id")?.[2]
+    if (values.length !== 2 || !id || !values.some((value) => value[1] === "variant")) continue
+    if (opening) replacements.push({ start: opening.start, end: opening.end, content: "" })
+    opening = { start: match.index, end: tokens.lastIndex, id }
+  }
+  if (opening) replacements.push({ start: opening.start, end: opening.end, content: "" })
+  return replacements
+}
+
+// Normalize ChatGPT markup without rewriting code fences or spans.
+function normalizeMarkdown(markdown: string) {
+  const tokens =
+    /^ {0,3}(?:> ?)*(?:(?:[-+*]|\d{1,9}[.)]) +)?(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|^((?:> ?)*(?: {4}|\t)[^\n]*(?:\n|$))|\\([([])|(<Cite\s+(?:refs=\{(\[[^\]\n]*\])\}|ref="([^"\n]+)")\s*\/>)/gm
   let result = ""
   let cursor = 0
   for (let match = tokens.exec(markdown); match; match = tokens.exec(markdown)) {
     const start = match.index
     result += markdown.slice(cursor, start)
     let end = tokens.lastIndex
-    if (match[4]) {
-      result += match[0]
-    } else if (match[1]) {
-      const fence = match[1]
-      const closing = new RegExp(`^ {0,3}${fence[0]}{${fence.length},}[ \\t]*(?:\\n|$)`, "gm")
-      closing.lastIndex = end
-      const close = closing.exec(markdown)
-      end = close ? closing.lastIndex : markdown.length
+    const codeEnd = markdownCodeEnd(markdown, match)
+    if (codeEnd !== undefined) {
+      end = codeEnd
       result += markdown.slice(start, end)
-    } else if (match[2]) {
-      const closing = new RegExp(`(?<!\x60)\x60{${match[2].length}}(?!\x60)`, "g")
-      closing.lastIndex = end
-      const close = closing.exec(markdown)
-      end = close ? closing.lastIndex : end
-      result += markdown.slice(start, end)
+    } else if (match[5]) {
+      if (!match[7]) {
+        try {
+          const refs: unknown = JSON.parse(match[6]!)
+          if (
+            !Array.isArray(refs) ||
+            !refs.every((ref) => typeof ref === "string" && ref.length > 0)
+          )
+            result += match[0]
+        } catch {
+          result += match[0]
+        }
+      }
     } else {
-      const block = match[3] === "["
+      const block = match[4] === "["
       const close = markdown.indexOf(block ? "\\]" : "\\)", end)
       if (close < 0) result += match[0]
       else {
@@ -229,7 +319,7 @@ export function getPreviewContent(message: ConversationMessage, imageLabel: stri
         ) === index,
     )
   const mentions: string[] = []
-  const replacements: { start: number; end: number; content: string }[] = []
+  const replacements = writingReplacements(source, message)
   const addReplacement = (start: unknown, end: unknown, content: string) => {
     if (
       typeof start !== "number" ||
@@ -252,6 +342,7 @@ export function getPreviewContent(message: ConversationMessage, imageLabel: stri
     mentions.push(source.slice(start, end))
   }
   for (const reference of records(message.metadata.content_references)) {
+    if (writingWidget(reference)) continue
     // Offsets belong to the original message, before trimming or Markdown conversion.
     if (
       typeof reference.matched_text === "string" &&
@@ -274,7 +365,7 @@ export function getPreviewContent(message: ConversationMessage, imageLabel: stri
 
   const { media, partFallbacks } = getPartPreview(message, imageLabel)
   return {
-    markdown: normalizeMath(markdown),
+    markdown: normalizeMarkdown(markdown),
     mentions,
     attachments,
     media,

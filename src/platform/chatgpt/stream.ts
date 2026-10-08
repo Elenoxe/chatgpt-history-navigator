@@ -138,6 +138,7 @@ const wsFrameSchema = z.object({
 export function installMessageStreamCapture(publisher: ReturnType<typeof createHistoryPublisher>) {
   type Session = ReturnType<typeof createSession>
   const sessions = new Map<string, Session>()
+  let lastInterrupted: Session | undefined
   function createSession(
     userId: string,
     conversationId: string | undefined,
@@ -177,6 +178,8 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
       if (finished) return
       finished = true
       emit(phase)
+      if (phase === "interrupted") lastInterrupted = session
+      else if (lastInterrupted === session) lastInterrupted = undefined
       if (conversationId && sessions.get(conversationId) === session)
         sessions.delete(conversationId)
     }
@@ -238,6 +241,12 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
       topics,
       finish,
       start: () => emit("streaming"),
+      resume: () => {
+        finished = false
+        handedOff = true
+        if (lastInterrupted === session) lastInterrupted = undefined
+        if (conversationId) sessions.set(conversationId, session)
+      },
       discard: () => {
         finished = true
         clearTimeout(timer)
@@ -250,6 +259,9 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
       },
       get handedOff() {
         return handedOff
+      },
+      get conversationId() {
+        return conversationId
       },
     }
     if (conversationId) bind(conversationId)
@@ -348,6 +360,8 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
             : null
       if (body === null) throw new ConversationDataError("Unsupported conversation request body")
       const request = parseApiResponse(requestSchema, JSON.parse(body))
+      lastInterrupted?.discard()
+      lastInterrupted = undefined
       session = createSession(
         userId,
         request.conversation_id,
@@ -375,19 +389,53 @@ export function installMessageStreamCapture(publisher: ReturnType<typeof createH
   }
   return {
     captureRequest,
-    async captureResume(url: URL, response: Promise<Response>) {
-      // Observe only resume requests associated with a handoff we already saw.
-      const session = [...sessions.entries()].find(
-        ([id, session]) =>
-          session.handedOff &&
-          (url.pathname.includes(id) ||
-            [...session.topics].some((topic) => url.pathname.includes(topic))),
-      )?.[1]
-      if (!session) return
+    async captureResume(
+      url: URL,
+      input: RequestInfo | URL,
+      init: RequestInit | undefined,
+      response: Promise<Response>,
+    ) {
+      let conversationId: string | undefined
+      const method = init?.method ?? (input instanceof Request ? input.method : "GET")
+      if (method.toUpperCase() === "POST") {
+        try {
+          const body =
+            typeof init?.body === "string"
+              ? init.body
+              : input instanceof Request
+                ? await input.text()
+                : null
+          if (body === null) throw new ConversationDataError("Unsupported resume request body")
+          conversationId = parseApiResponse(
+            z.object({ conversation_id: z.uuid() }),
+            JSON.parse(body),
+          ).conversation_id
+        } catch {
+          console.warn("[chatgpt-history-navigator] Unsupported conversation resume request")
+          return
+        }
+      }
+      // POST resumes also recover a prematurely closed SSE stream without a handoff.
+      const session = conversationId
+        ? (sessions.get(conversationId) ??
+          (lastInterrupted?.conversationId === conversationId ? lastInterrupted : undefined))
+        : [...sessions.entries()].find(
+            ([id, candidate]) =>
+              candidate.handedOff &&
+              (url.pathname.includes(id) ||
+                [...candidate.topics].some((topic) => url.pathname.includes(topic))),
+          )?.[1]
+      if (!session || JSON.parse(getConversationContextSnapshot())[0] !== session.userId) return
       try {
         const result = await response
         if (!result.headers.get("content-type")?.includes("text/event-stream")) return
+        if (
+          (sessions.get(session.conversationId!) !== session && lastInterrupted !== session) ||
+          JSON.parse(getConversationContextSnapshot())[0] !== session.userId
+        )
+          return
         if (!result.ok) throw new ConversationDataError("Resume stream request failed")
+        session.resume()
         await readResponse(result, session)
         if (!session.finished) session.finish("interrupted")
       } catch {
