@@ -9,7 +9,9 @@
     "preview": {
       "responsesRegionLabel": "Assistant responses",
       "tableRegionLabel": "Table",
-      "imageFallbackLabel": "Image attachment"
+      "imageFallbackLabel": "Image attachment",
+      "intelligentUiLabel": "Intelligent UI",
+      "intelligentUiUnavailable": "This content's text preview is not available yet."
     },
     "errors": {
       "historyFailed": "Couldn't load the complete conversation history.",

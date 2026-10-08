@@ -9,7 +9,9 @@
     "preview": {
       "responsesRegionLabel": "アシスタントの回答",
       "tableRegionLabel": "表",
-      "imageFallbackLabel": "添付画像"
+      "imageFallbackLabel": "添付画像",
+      "intelligentUiLabel": "Intelligent UI",
+      "intelligentUiUnavailable": "このコンテンツのテキストプレビューはまだ利用できません。"
     },
     "errors": {
       "historyFailed": "会話履歴全体を読み込めませんでした。",

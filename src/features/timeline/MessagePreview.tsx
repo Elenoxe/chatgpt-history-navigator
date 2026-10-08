@@ -3,6 +3,7 @@ import { skipToken, useQuery } from "@tanstack/react-query"
 import { fetchWritingContent } from "@/platform/chatgpt/api"
 import { PreviewContext } from "./PreviewContext"
 import { useTranslation } from "react-i18next"
+import { PanelsTopLeft } from "lucide-react"
 import Markdown, {
   defaultUrlTransform,
   type Components,
@@ -50,6 +51,14 @@ function previewDirectives() {
             className: "preview-writing",
             "data-writing-id": node.attributes?.id,
             "data-writing-title": node.attributes?.title || node.attributes?.subject,
+          },
+        }
+      } else if (node.type === "containerDirective" && node.name === "previewIntelligentUi") {
+        node.data = {
+          hName: "section",
+          hProperties: {
+            "data-intelligent-ui": true,
+            "data-intelligent-ui-unavailable": node.attributes?.unavailable === "true",
           },
         }
       } else if (node.type === "textDirective" && node.name === "previewMention") {
@@ -161,6 +170,25 @@ function WritingSection({ node, children }: React.ComponentProps<"section"> & Ex
   )
 }
 
+function PreviewSection(props: React.ComponentProps<"section"> & ExtraProps) {
+  const { title, t } = useContext(MarkdownContext)!
+  if (!props.node?.properties["data-intelligent-ui"]) return <WritingSection {...props} />
+  const content = props.node.properties["data-intelligent-ui-unavailable"]
+    ? t("timeline.preview.intelligentUiUnavailable")
+    : props.children
+  return title ? (
+    <>{content}</>
+  ) : (
+    <section className="preview-intelligent-ui">
+      <header className="preview-intelligent-ui-label">
+        <PanelsTopLeft size={14} strokeWidth={1.5} aria-hidden="true" />
+        {t("timeline.preview.intelligentUiLabel")}
+      </header>
+      <div className="preview-intelligent-ui-content">{content}</div>
+    </section>
+  )
+}
+
 function fileTarget(
   url: string | undefined,
   title: boolean,
@@ -234,7 +262,7 @@ const components: Components = {
       </ScrollFade>
     )
   },
-  section: WritingSection,
+  section: PreviewSection,
   pre: ({ children, node }) => {
     const { title } = useContext(MarkdownContext)!
     if (title) return <span>{children}</span>

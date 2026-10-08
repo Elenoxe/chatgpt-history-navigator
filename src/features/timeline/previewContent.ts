@@ -242,10 +242,16 @@ function writingReplacements(source: string, message: ConversationMessage) {
   return replacements
 }
 
+function markdownLink(label: string, target: string | undefined) {
+  const url = previewUrl(target)
+  const name = label.replace(/[\\`*_[\]<>]/g, "\\$&")
+  return url ? `[${name}](<${url.replace(/[<>]/g, encodeURIComponent)}>)` : name
+}
+
 // Normalize ChatGPT markup without rewriting code fences or spans.
 function normalizeMarkdown(markdown: string) {
   const tokens =
-    /^ {0,3}(?:> ?)*(?:(?:[-+*]|\d{1,9}[.)]) +)?(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|^((?:> ?)*(?: {4}|\t)[^\n]*(?:\n|$))|\\([([])|(<Cite\s+(?:refs=\{(\[[^\]\n]*\])\}|ref="([^"\n]+)")\s*\/>)/gm
+    /^ {0,3}(?:> ?)*(?:(?:[-+*]|\d{1,9}[.)]) +)?(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|^((?:> ?)*(?: {4}|\t)[^\n]*(?:\n|$))|\\([([])|(<Cite\s+(?:refs=\{(\[[^\]\n]*\])\}|ref="([^"\n]+)")\s*\/>)|((cite|url)([^\n]*))|(<Link\s+((?:(?:url|title)="[^"\n]*"\s*)+)\/>)/gm
   let result = ""
   let cursor = 0
   for (let match = tokens.exec(markdown); match; match = tokens.exec(markdown)) {
@@ -256,6 +262,19 @@ function normalizeMarkdown(markdown: string) {
     if (codeEnd !== undefined) {
       end = codeEnd
       result += markdown.slice(start, end)
+    } else if (match[11]) {
+      const attributes = Object.fromEntries(
+        [...match[12]!.matchAll(/(url|title)="([^"\n]*)"/g)].map((attribute) => [
+          attribute[1],
+          attribute[2]!.replace(/&amp;/g, "&"),
+        ]),
+      )
+      result += markdownLink(attributes.title ?? attributes.url ?? "", attributes.url)
+    } else if (match[8]) {
+      if (match[9] === "url") {
+        const [label, target] = match[10]!.split("")
+        result += markdownLink(label ?? "", target)
+      }
     } else if (match[5]) {
       if (!match[7]) {
         try {
@@ -283,6 +302,80 @@ function normalizeMarkdown(markdown: string) {
     tokens.lastIndex = end
   }
   return result + markdown.slice(cursor)
+}
+
+function intelligentUiReplacements(source: string, fallback: string | undefined) {
+  const key = (value: string) =>
+    normalizeMarkdown(value.replace(/[^]*/g, "").replace(/<\/?[\w-]+\b[^>]*>/g, ""))
+      .replace(/\\([^\p{L}\p{N}\s])/gu, "$1")
+      .replace(/&amp;/g, "&")
+      .trim()
+  const paragraphs = [...(fallback ?? "").matchAll(/[^\n]+(?:\n(?!\n)[^\n]+)*/g)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    key: key(match[0]),
+  }))
+  const replacements: { start: number; end: number; content: string }[] = []
+  let fence = ":::"
+  for (const match of (fallback ?? "").matchAll(/^(:{3,})/gm))
+    if (match[1]!.length >= fence.length) fence = ":".repeat(match[1]!.length + 1)
+  const tokens =
+    /^ {0,3}(?:> ?)*(?:(?:[-+*]|\d{1,9}[.)]) +)?(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|^((?:> ?)*(?: {4}|\t)[^\n]*(?:\n|$))|^<(box|row|grid)\b[^\n]*>|^\{@body[^\n]*\}/gm
+  let cursor = 0
+  let fallbackEnd = 0
+  for (let match = tokens.exec(source); match; match = tokens.exec(source)) {
+    const codeEnd = markdownCodeEnd(source, match)
+    if (codeEnd !== undefined) {
+      tokens.lastIndex = codeEnd
+      continue
+    }
+    if (!match[4]) {
+      replacements.push({ start: match.index, end: tokens.lastIndex, content: "" })
+      continue
+    }
+    if (match[0].endsWith("/>")) continue
+    // shortcut: Match observed standalone root layouts; extend on verified new source formats.
+    const inline = match[0].includes(`</${match[4]}>`)
+    const closing = new RegExp(`^</${match[4]}>[ \\t]*(?:\\n|$)`, "gm")
+    closing.lastIndex = tokens.lastIndex
+    const end = inline ? tokens.lastIndex : closing.exec(source)?.index
+    const sourceEnd = inline
+      ? tokens.lastIndex
+      : end === undefined
+        ? source.length
+        : closing.lastIndex
+    const before = source
+      .slice(cursor, match.index)
+      .replace(/^\{@body[^\n]*\}\s*$/gm, "")
+      .trim()
+      .split(/\n\s*\n/)
+      .at(-1)
+    const after = source
+      .slice(sourceEnd)
+      .trim()
+      .split(/\n\s*\n/)[0]
+    const starts = before
+      ? paragraphs.filter(
+          (paragraph) => paragraph.start >= fallbackEnd && paragraph.key === key(before),
+        )
+      : []
+    const start = starts[0]?.end ?? fallbackEnd
+    const ends = after
+      ? paragraphs.filter((paragraph) => paragraph.start >= start && paragraph.key === key(after))
+      : []
+    const available =
+      fallback !== undefined && (!before || starts.length === 1) && (!after || ends.length === 1)
+    const fallbackBlockEnd = ends[0]?.start ?? fallback?.length ?? 0
+    replacements.push({
+      start: match.index,
+      end: sourceEnd,
+      content: `\n\n${fence}previewIntelligentUi${available ? "" : '{unavailable="true"}'}\n${available ? fallback.slice(start, fallbackBlockEnd).trim() : ""}\n${fence}\n\n`,
+    })
+    fallbackEnd = fallbackBlockEnd
+    cursor = sourceEnd
+    tokens.lastIndex = sourceEnd
+  }
+  return replacements
 }
 
 export function getPreviewContent(message: ConversationMessage, imageLabel: string) {
@@ -318,8 +411,21 @@ export function getPreviewContent(message: ConversationMessage, imageLabel: stri
                 : other.name === attachment.name,
         ) === index,
     )
+  const { media, partFallbacks } = getPartPreview(message, imageLabel)
   const mentions: string[] = []
   const replacements = writingReplacements(source, message)
+  const intelligentUi = message.metadata.model_dil_v2
+  if (
+    intelligentUi !== null &&
+    typeof intelligentUi === "object" &&
+    !Array.isArray(intelligentUi)
+  ) {
+    const fallback = record(intelligentUi)
+    const markdown = fallback.fallbackMarkdown
+    const projected =
+      fallback.fallbackMarkdownVersion === 1 && typeof markdown === "string" ? markdown : undefined
+    replacements.push(...intelligentUiReplacements(source, projected))
+  }
   const addReplacement = (start: unknown, end: unknown, content: string) => {
     if (
       typeof start !== "number" ||
@@ -328,7 +434,8 @@ export function getPreviewContent(message: ConversationMessage, imageLabel: stri
       !Number.isInteger(end) ||
       start < 0 ||
       end <= start ||
-      end > source.length
+      end > source.length ||
+      replacements.some((replacement) => start < replacement.end && end > replacement.start)
     )
       return
     replacements.push({ start, end, content })
@@ -363,7 +470,6 @@ export function getPreviewContent(message: ConversationMessage, imageLabel: stri
   }
   markdown += source.slice(cursor)
 
-  const { media, partFallbacks } = getPartPreview(message, imageLabel)
   return {
     markdown: normalizeMarkdown(markdown),
     mentions,

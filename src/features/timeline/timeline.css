@@ -421,6 +421,35 @@
   font-weight: inherit;
   color: var(--timeline-preview-muted-color);
 }
+.preview-intelligent-ui {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--timeline-preview-code-background);
+}
+.preview-intelligent-ui-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: var(--timeline-preview-border-width) solid var(--timeline-preview-border-color);
+  color: var(--timeline-preview-muted-color);
+  font-size: 11px;
+  line-height: 16px;
+}
+.preview-intelligent-ui-label svg {
+  flex-shrink: 0;
+}
+.preview-intelligent-ui-content {
+  margin-top: 8px;
+}
+.preview-intelligent-ui-content > :not(:first-child) {
+  margin-top: 6px;
+}
+.preview-intelligent-ui-content hr {
+  margin-block: 10px;
+  border: 0;
+  border-top: 1px solid var(--timeline-preview-border-color);
+}
 .preview-link {
   text-decoration: underline;
   text-decoration-color: var(--timeline-preview-border-color);
