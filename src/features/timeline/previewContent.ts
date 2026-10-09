@@ -251,7 +251,7 @@ function markdownLink(label: string, target: string | undefined) {
 // Normalize ChatGPT markup without rewriting code fences or spans.
 function normalizeMarkdown(markdown: string) {
   const tokens =
-    /^ {0,3}(?:> ?)*(?:(?:[-+*]|\d{1,9}[.)]) +)?(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|^((?:> ?)*(?: {4}|\t)[^\n]*(?:\n|$))|\\([([])|(<Cite\s+(?:refs=\{(\[[^\]\n]*\])\}|ref="([^"\n]+)")\s*\/>)|((cite|url)([^\n]*))|(<Link\s+((?:(?:url|title)="[^"\n]*"\s*)+)\/>)/gm
+    /^ {0,3}(?:> ?)*(?:(?:[-+*]|\d{1,9}[.)]) +)?(`{3,}|~{3,})[^\n]*(?:\n|$)|(`+)|^((?:> ?)*(?: {4}|\t)[^\n]*(?:\n|$))|\\([([])|(<Cite\s+(?:refs=\{(\[[^\]\n]*\])\}|ref="([^"\n]+)")\s*\/>)|((cite|url|entity|image_group)([^\n]*))|(<Link\s+((?:(?:url|title)="[^"\n]*"\s*)+)\/>)/gm
   let result = ""
   let cursor = 0
   for (let match = tokens.exec(markdown); match; match = tokens.exec(markdown)) {
@@ -274,7 +274,18 @@ function normalizeMarkdown(markdown: string) {
       if (match[9] === "url") {
         const [label, target] = match[10]!.split("")
         result += markdownLink(label ?? "", target)
+      } else if (match[9] === "entity") {
+        try {
+          const entity: unknown = JSON.parse(match[10]!)
+          result +=
+            Array.isArray(entity) && typeof entity[1] === "string"
+              ? markdownLink(entity[1], undefined)
+              : match[0]
+        } catch {
+          result += match[0]
+        }
       }
+      // Image groups contain search queries, not image URLs for the static preview.
     } else if (match[5]) {
       if (!match[7]) {
         try {
