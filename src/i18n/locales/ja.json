@@ -10,6 +10,7 @@
       "responsesRegionLabel": "アシスタントの回答",
       "tableRegionLabel": "表",
       "imageFallbackLabel": "添付画像",
+      "writingLabel": "ライティングブロック",
       "intelligentUiLabel": "Intelligent UI",
       "intelligentUiUnavailable": "このコンテンツのテキストプレビューはまだ利用できません。"
     },

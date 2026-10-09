@@ -3,7 +3,7 @@ import { skipToken, useQuery } from "@tanstack/react-query"
 import { fetchWritingContent } from "@/platform/chatgpt/api"
 import { PreviewContext } from "./PreviewContext"
 import { useTranslation } from "react-i18next"
-import { PanelsTopLeft } from "lucide-react"
+import { FilePenLine, PanelsTopLeft } from "lucide-react"
 import Markdown, {
   defaultUrlTransform,
   type Components,
@@ -90,7 +90,7 @@ const MarkdownContext = createContext<{
 } | null>(null)
 
 function WritingSection({ node, children }: React.ComponentProps<"section"> & ExtraProps) {
-  const { message, conversationId, title } = useContext(MarkdownContext)!
+  const { message, conversationId, title, t } = useContext(MarkdownContext)!
   const context = useContext(PreviewContext)
   const id = String(node?.properties["data-writing-id"] ?? "")
   const block = getWritingBlock(message, id)
@@ -140,32 +140,40 @@ function WritingSection({ node, children }: React.ComponentProps<"section"> & Ex
   const contentReferences =
     content === undefined ? [] : getWritingReferences(message, content, references)
   return (
-    <section className="preview-writing">
-      {typeof heading === "string" && heading && (
-        <header className="preview-writing-title">{heading}</header>
+    <section className="preview-block preview-writing">
+      {!title && (
+        <header className="preview-block-label">
+          <FilePenLine size={14} strokeWidth={1.5} aria-hidden="true" />
+          {t("timeline.preview.writingLabel")}
+        </header>
       )}
-      {content !== undefined ? (
-        <MessagePreview
-          conversationId={conversationId}
-          message={{
-            ...message,
-            content: { content_type: "text", parts: [content] },
-            metadata: {
-              content_references: contentReferences,
-            },
-          }}
-        />
-      ) : libraryId ? (
-        <a
-          href={`https://chatgpt.com/api/library/files/${encodeURIComponent(libraryId)}/download`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {typeof heading === "string" ? heading : libraryId}
-        </a>
-      ) : (
-        children
-      )}
+      <div className="preview-block-content">
+        {typeof heading === "string" && heading && (
+          <p className="preview-writing-title">{heading}</p>
+        )}
+        {content !== undefined ? (
+          <MessagePreview
+            conversationId={conversationId}
+            message={{
+              ...message,
+              content: { content_type: "text", parts: [content] },
+              metadata: {
+                content_references: contentReferences,
+              },
+            }}
+          />
+        ) : libraryId ? (
+          <a
+            href={`https://chatgpt.com/api/library/files/${encodeURIComponent(libraryId)}/download`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {typeof heading === "string" ? heading : libraryId}
+          </a>
+        ) : (
+          children
+        )}
+      </div>
     </section>
   )
 }
@@ -179,12 +187,12 @@ function PreviewSection(props: React.ComponentProps<"section"> & ExtraProps) {
   return title ? (
     <>{content}</>
   ) : (
-    <section className="preview-intelligent-ui">
-      <header className="preview-intelligent-ui-label">
+    <section className="preview-block preview-intelligent-ui">
+      <header className="preview-block-label">
         <PanelsTopLeft size={14} strokeWidth={1.5} aria-hidden="true" />
         {t("timeline.preview.intelligentUiLabel")}
       </header>
-      <div className="preview-intelligent-ui-content">{content}</div>
+      <div className="preview-block-content">{content}</div>
     </section>
   )
 }

@@ -10,6 +10,7 @@
       "responsesRegionLabel": "Assistant responses",
       "tableRegionLabel": "Table",
       "imageFallbackLabel": "Image attachment",
+      "writingLabel": "Writing block",
       "intelligentUiLabel": "Intelligent UI",
       "intelligentUiUnavailable": "This content's text preview is not available yet."
     },

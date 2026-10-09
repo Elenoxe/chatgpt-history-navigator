@@ -405,28 +405,15 @@
 .timeline-preview blockquote > :not(:first-child) {
   margin-top: 10px;
 }
-.preview-writing {
-  padding: 14px 16px;
-  border: 1px solid var(--timeline-preview-border-color);
-  border-radius: 12px;
-  color: inherit;
-  background: var(--timeline-preview-code-background);
-}
-.preview-writing > :not(:first-child) {
-  margin-top: 10px;
-}
 .preview-writing-title {
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: inherit;
-  color: var(--timeline-preview-muted-color);
+  font-weight: var(--timeline-preview-title-weight);
 }
-.preview-intelligent-ui {
+.preview-block {
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--timeline-preview-code-background);
 }
-.preview-intelligent-ui-label {
+.preview-block-label {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -436,16 +423,16 @@
   font-size: 11px;
   line-height: 16px;
 }
-.preview-intelligent-ui-label svg {
+.preview-block-label svg {
   flex-shrink: 0;
 }
-.preview-intelligent-ui-content {
+.preview-block-content {
   margin-top: 8px;
 }
-.preview-intelligent-ui-content > :not(:first-child) {
+.preview-block-content > :not(:first-child) {
   margin-top: 6px;
 }
-.preview-intelligent-ui-content hr {
+.preview-block-content hr {
   margin-block: 10px;
   border: 0;
   border-top: 1px solid var(--timeline-preview-border-color);
