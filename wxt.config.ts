@@ -16,6 +16,7 @@ const noncharacters = new RegExp(
 export default defineConfig({
   webExt: {
     keepProfileChanges: true,
+    startUrls: ["https://chatgpt.com"],
   },
   hooks: {
     "config:resolved": ({ config }) => {
